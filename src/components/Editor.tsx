@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion'
 import type { ChatMessage, Clip, Grade, MediaAsset, ToolId } from '../types'
 import {
@@ -74,12 +74,15 @@ import { ChatPanel, ChatRail } from './ChatPanel'
 import { ExportDialog } from './ExportDialog'
 import { HistoryPanel } from './HistoryPanel'
 import { fade, panelTransition } from '../lib/motion'
+import { cn } from '../lib/cn'
 
 export function Editor() {
   const reduce = useReducedMotion()
   const [tool, setTool] = useState<ToolId>('media')
   const [panelOpen, setPanelOpen] = useState(true)
   const [chatOpen, setChatOpen] = useState(true)
+  const [mediaWidth, setMediaWidth] = useState(() => readNumberPref('parallax.mediaWidth', 268, 220, 420))
+  const [chatWidth, setChatWidth] = useState(() => readNumberPref('parallax.chatWidth', 360, 300, 520))
   const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
@@ -118,6 +121,69 @@ export function Editor() {
   const [history, setHistory] = useState<ProjectHistory | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const resizeRef = useRef<{ side: 'media' | 'chat'; startX: number; startWidth: number } | null>(null)
+  const [resizing, setResizing] = useState<'media' | 'chat' | null>(null)
+
+  useEffect(() => {
+    function onPointerMove(event: globalThis.PointerEvent) {
+      const active = resizeRef.current
+      if (!active) return
+      const delta = event.clientX - active.startX
+      const next = active.side === 'media'
+        ? clampNumber(active.startWidth + delta, 220, 420)
+        : clampNumber(active.startWidth - delta, 300, 520)
+      if (active.side === 'media') setMediaWidth(next)
+      else setChatWidth(next)
+    }
+
+    function onPointerUp(event: globalThis.PointerEvent) {
+      const active = resizeRef.current
+      if (!active) return
+      const delta = event.clientX - active.startX
+      const next = active.side === 'media'
+        ? clampNumber(active.startWidth + delta, 220, 420)
+        : clampNumber(active.startWidth - delta, 300, 520)
+      writePref(active.side === 'media' ? 'parallax.mediaWidth' : 'parallax.chatWidth', String(next))
+      resizeRef.current = null
+      setResizing(null)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [])
+
+  function startResize(side: 'media' | 'chat', event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault()
+    resizeRef.current = {
+      side,
+      startX: event.clientX,
+      startWidth: side === 'media' ? mediaWidth : chatWidth,
+    }
+    setResizing(side)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
+  function nudgeResize(side: 'media' | 'chat', direction: -1 | 1) {
+    const next = side === 'media'
+      ? clampNumber(mediaWidth + direction * 16, 220, 420)
+      : clampNumber(chatWidth - direction * 16, 300, 520)
+    if (side === 'media') {
+      setMediaWidth(next)
+      writePref('parallax.mediaWidth', String(next))
+    } else {
+      setChatWidth(next)
+      writePref('parallax.chatWidth', String(next))
+    }
+  }
 
   const duration = useMemo(() => sequenceDuration(clips, assets), [clips, assets])
   const durationRef = useRef(duration)
@@ -966,15 +1032,16 @@ export function Editor() {
             <motion.div
               key="bin"
               initial={reduce ? false : { width: 0, opacity: 0 }}
-              animate={{ width: 268, opacity: 1 }}
+              animate={{ width: mediaWidth, opacity: 1 }}
               exit={reduce ? undefined : { width: 0, opacity: 0 }}
-              transition={reduce ? { duration: 0 } : panelTransition}
+              transition={reduce || resizing ? { duration: 0 } : panelTransition}
               className="h-full shrink-0 overflow-hidden"
             >
               {tool === 'history' ? (
-                <HistoryPanel history={history} loading={historyLoading} onRestore={(revision) => void restoreRevision(revision)} onCheckpoint={() => void checkpoint()} />
+                <HistoryPanel width={mediaWidth} history={history} loading={historyLoading} onRestore={(revision) => void restoreRevision(revision)} onCheckpoint={() => void checkpoint()} />
               ) : (
                 <MediaPanel
+                  width={mediaWidth}
                   tool={tool}
                   assets={assets}
                   loading={mediaLoading}
@@ -988,6 +1055,14 @@ export function Editor() {
             </motion.div>
           )}
         </AnimatePresence>
+        {panelOpen && (
+          <ResizeHandle
+            side="media"
+            resizing={resizing === 'media'}
+            onPointerDown={startResize}
+            onNudge={nudgeResize}
+          />
+        )}
 
         <div className="flex min-w-0 flex-1 flex-col">
           <PreviewStage
@@ -1039,17 +1114,26 @@ export function Editor() {
           />
         </div>
 
+        {chatOpen && (
+          <ResizeHandle
+            side="chat"
+            resizing={resizing === 'chat'}
+            onPointerDown={startResize}
+            onNudge={nudgeResize}
+          />
+        )}
         <AnimatePresence initial={false} mode="popLayout">
           {chatOpen ? (
             <motion.div
               key="chat"
               initial={reduce ? false : { width: 0, opacity: 0 }}
-              animate={{ width: 360, opacity: 1 }}
+              animate={{ width: chatWidth, opacity: 1 }}
               exit={reduce ? undefined : { width: 0, opacity: 0 }}
-              transition={reduce ? { duration: 0 } : panelTransition}
+              transition={reduce || resizing ? { duration: 0 } : panelTransition}
               className="h-full shrink-0 overflow-hidden"
             >
               <ChatPanel
+                width={chatWidth}
                 messages={messages}
                 chats={chats}
                 chatId={sessionId}
@@ -1269,6 +1353,60 @@ function writePref(key: string, value: string) {
   } catch {
     // ignore quota / private mode
   }
+}
+
+function readNumberPref(key: string, fallback: number, min: number, max: number) {
+  const stored = readPref(key)
+  if (!stored.trim()) return fallback
+  const value = Number(stored)
+  return Number.isFinite(value) ? clampNumber(value, min, max) : fallback
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Math.round(value)))
+}
+
+function ResizeHandle({
+  side,
+  resizing,
+  onPointerDown,
+  onNudge,
+}: {
+  side: 'media' | 'chat'
+  resizing: boolean
+  onPointerDown: (side: 'media' | 'chat', event: ReactPointerEvent<HTMLDivElement>) => void
+  onNudge: (side: 'media' | 'chat', direction: -1 | 1) => void
+}) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`Resize ${side === 'media' ? 'media' : 'Director'} sidebar`}
+      tabIndex={0}
+      onPointerDown={(event) => onPointerDown(side, event)}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          onNudge(side, -1)
+        }
+        if (event.key === 'ArrowRight') {
+          event.preventDefault()
+          onNudge(side, 1)
+        }
+      }}
+      className={cn(
+        'group relative z-20 h-full w-1 shrink-0 cursor-col-resize outline-none transition-colors',
+        resizing ? 'bg-wash-strong' : 'hover:bg-wash',
+        'focus-visible:bg-wash-strong',
+      )}
+    >
+      <span className="absolute inset-y-0 -left-1 -right-1" />
+      <span className={cn(
+        'absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors group-hover:bg-line-strong group-focus-visible:bg-line-strong',
+        resizing && 'bg-line-strong',
+      )} />
+    </div>
+  )
 }
 
 function errorMessage(error: unknown) {

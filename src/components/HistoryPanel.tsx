@@ -2,16 +2,17 @@ import { Check, GitBranch, RotateCcw } from 'lucide-react'
 import type { ProjectHistory } from '../lib/api'
 
 type Props = {
+  width: number
   history: ProjectHistory | null
   loading: boolean
   onRestore: (revision: number) => void
   onCheckpoint: () => void
 }
 
-export function HistoryPanel({ history, loading, onRestore, onCheckpoint }: Props) {
+export function HistoryPanel({ width, history, loading, onRestore, onCheckpoint }: Props) {
   const revisions = [...(history?.revisions ?? [])].sort((a, b) => b.id - a.id)
   return (
-    <aside className="chrome flex h-full w-[268px] shrink-0 flex-col border-r border-line bg-well">
+    <aside className="chrome flex h-full w-full shrink-0 flex-col border-r border-line bg-well" style={{ width }}>
       <div className="flex h-11 items-center justify-between border-b border-line px-3">
         <h2 className="text-[11px] font-medium tracking-[0.16em] text-mute uppercase">History</h2>
         <button type="button" onClick={onCheckpoint} disabled={!history} className="rounded border border-line px-2 py-1 text-[10px] text-mute hover:text-cream disabled:opacity-40">Checkpoint</button>

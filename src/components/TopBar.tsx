@@ -5,6 +5,7 @@ import type { ProjectRecord } from '../lib/api'
 import { softSpring } from '../lib/motion'
 import { ThemeToggle } from './ThemeToggle'
 import { IconButton, Logo, Pill } from './ui'
+import { Select, SelectContent, SelectItem, SelectTrigger } from './Select'
 
 type Props = {
   onExport: () => void
@@ -45,16 +46,23 @@ export function TopBar({
         <div className="hidden h-4 w-px bg-line-strong sm:block" />
         <div className="hidden min-w-0 items-center gap-2 sm:flex">
           {projects.length ? (
-            <select
-              value={projectId}
-              onChange={(event) => onProject(event.target.value)}
-              aria-label="Current project"
-              className="max-w-44 rounded-md border border-line bg-well px-2 py-1 text-[12px] text-cream outline-none"
-            >
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>{project.name}</option>
-              ))}
-            </select>
+            <Select value={projectId} onValueChange={onProject}>
+              <SelectTrigger
+                className="h-8 w-[132px] border-line bg-well px-2.5 text-[6px]"
+                aria-label="Current project"
+              >
+                <span className="truncate">
+                  {projects.find((project) => project.id === projectId)?.name ?? projectName}
+                </span>
+              </SelectTrigger>
+              <SelectContent side="bottom" align="start">
+                {projects.map((project) => (
+                  <SelectItem key={project.id} value={project.id} textValue={project.name}>
+                    <span className="truncate">{project.name}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
             <span className="truncate text-[13px] font-medium text-mute">{projectName}</span>
           )}

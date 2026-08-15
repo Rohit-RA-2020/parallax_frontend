@@ -11,6 +11,7 @@ import { MarkdownText } from './MarkdownText'
 import { Select, SelectContent, SelectItem, SelectTrigger } from './Select'
 
 type Props = {
+  width: number
   messages: ChatMessage[]
   chats: ChatRecord[]
   chatId: string
@@ -32,6 +33,7 @@ type Props = {
 }
 
 export function ChatPanel({
+  width,
   messages,
   chats,
   chatId,
@@ -84,7 +86,7 @@ export function ChatPanel({
   }
 
   return (
-    <aside className="chrome flex h-full w-[360px] shrink-0 flex-col border-l border-line bg-panel">
+    <aside className="chrome flex h-full w-full shrink-0 flex-col border-l border-line bg-panel" style={{ width }}>
       <div className="flex h-12 items-center justify-between border-b border-line px-4">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="relative grid size-6 shrink-0 place-items-center rounded-full border border-live/30">
@@ -239,54 +241,67 @@ export function ChatPanel({
         <div ref={end} />
       </div>
 
-      <div className="border-t border-line p-3">
-        <form onSubmit={submit} className="relative">
+      <div className="border-t border-line bg-panel p-3">
+        <form
+          onSubmit={submit}
+          className="overflow-hidden rounded-[18px] border border-line-strong bg-lift shadow-[0_10px_28px_rgb(0_0_0_/_0.07)] transition-colors focus-within:border-line-strong"
+        >
           <textarea
             value={draft}
             onChange={(e) => onDraft(e.target.value)}
             onKeyDown={onKey}
             rows={2}
-            placeholder="Ask to recut, grade, or title…"
-            className="w-full resize-none rounded-lg border border-line bg-well px-3 py-2.5 pr-11 text-[13px] text-cream outline-none placeholder:text-dim focus:border-line-strong"
+            placeholder="Ask Director to recut, grade, or title…"
+            className="block min-h-[78px] w-full resize-none border-0 bg-transparent px-3.5 py-3.5 pr-4 text-[10px] leading-relaxed text-cream outline-none placeholder:text-dim"
           />
-          <motion.button
-            type="submit"
-            disabled={!draft.trim() || pending}
-            aria-label="Send"
-            whileHover={reduce || !draft.trim() ? undefined : { scale: 1.05 }}
-            whileTap={reduce || !draft.trim() ? undefined : { scale: 0.92 }}
-            transition={softSpring}
-            className="absolute right-2 bottom-2 grid size-7 place-items-center rounded-md bg-cream text-ink disabled:bg-cream/15 disabled:text-dim"
-          >
-            <ArrowUp size={14} />
-          </motion.button>
-        </form>
-        {models.length > 0 && onModel && activeModel && (
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <Select value={activeModel.id} onValueChange={onModel}>
-              <SelectTrigger aria-label="Language model">
-                <span className="truncate">{profileLabel(activeModel)}</span>
-              </SelectTrigger>
-              <SelectContent>
-                {models.map((model) => {
-                  const host = profileHost(model.base_url)
-                  return (
-                    <SelectItem key={model.id} value={model.id} textValue={profileLabel(model)}>
-                      <span className="flex min-w-0 flex-col">
-                        <span className="truncate">{profileLabel(model)}</span>
-                        {host && <span className="truncate text-[10px] text-dim">{host}</span>}
-                      </span>
-                    </SelectItem>
-                  )
-                })}
-              </SelectContent>
-            </Select>
-            <ThinkingEffortSelect value={thinkingEffort} onChange={onThinkingEffort} />
+          <div className="flex min-w-0 items-center justify-end gap-1.5 px-2.5 pb-2.5">
+            <div className="ml-auto flex min-w-0 items-center gap-0.5">
+              {models.length > 0 && onModel && activeModel && (
+                <Select value={activeModel.id} onValueChange={onModel}>
+                  <SelectTrigger
+                    className="!h-7 !w-auto !min-w-0 !max-w-[116px] !border-transparent !bg-transparent px-1.5 text-[6px] tracking-wide text-dim shadow-none hover:bg-wash hover:text-cream focus-visible:bg-wash"
+                    aria-label="Language model"
+                    title={`Language model: ${profileLabel(activeModel)}`}
+                  >
+                    <span className="truncate">{profileLabel(activeModel)}</span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {models.map((model) => {
+                      const host = profileHost(model.base_url)
+                      return (
+                        <SelectItem key={model.id} value={model.id} textValue={profileLabel(model)}>
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate">{profileLabel(model)}</span>
+                            {host && <span className="truncate text-[10px] text-dim">{host}</span>}
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              )}
+              {models.length > 0 && onModel && activeModel && (
+                <span className="px-0.5 text-[10px] text-dim/50" aria-hidden>·</span>
+              )}
+              <ThinkingEffortSelect
+                value={thinkingEffort}
+                onChange={onThinkingEffort}
+                className="!h-7 !w-auto !min-w-[78px] !max-w-[104px] !border-transparent !bg-transparent px-1.5 text-[6px] tracking-wide text-dim shadow-none hover:bg-wash hover:text-cream focus-visible:bg-wash"
+              />
+            </div>
+            <motion.button
+                type="submit"
+                disabled={!draft.trim() || pending}
+                aria-label="Send"
+                whileHover={reduce || !draft.trim() ? undefined : { scale: 1.06, y: -1 }}
+                whileTap={reduce || !draft.trim() ? undefined : { scale: 0.9 }}
+                transition={softSpring}
+                className="grid size-7 place-items-center rounded-full bg-cream text-ink transition-opacity disabled:opacity-25"
+              >
+                <ArrowUp size={14} />
+            </motion.button>
           </div>
-        )}
-        {(models.length === 0 || !onModel || !activeModel) && (
-          <ThinkingEffortSelect value={thinkingEffort} onChange={onThinkingEffort} className="mt-2" />
-        )}
+        </form>
       </div>
     </aside>
   )
@@ -303,8 +318,12 @@ function ThinkingEffortSelect({
 }) {
   return (
     <Select value={value} onValueChange={(next) => onChange(next as ThinkingEffort)}>
-      <SelectTrigger className={className} aria-label="Thinking effort">
-        <span className="truncate">Thinking: {capitalize(value)}</span>
+      <SelectTrigger
+        className={className}
+        aria-label="Thinking effort"
+        title={`Thinking effort: ${capitalize(value)}`}
+      >
+        <span className="truncate">{capitalize(value)}</span>
       </SelectTrigger>
       <SelectContent>
         {(['low', 'medium', 'high'] as ThinkingEffort[]).map((effort) => (

@@ -1,4 +1,5 @@
 import { useRef, useState, type DragEvent, type PointerEvent } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import { Eye, Link2, Magnet, Scissors, Type, Unlink, Volume2, X } from 'lucide-react'
 import type { Clip, MediaAsset, Track } from '../types'
 import { PROJECT_FPS, markers, tracks } from '../data/project'
@@ -81,6 +82,7 @@ export function Timeline({
   onUnlink,
   saveStatus = 'idle',
 }: Props) {
+  const reduce = useReducedMotion()
   const scroller = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
   const [ghost, setGhost] = useState<DropGhost | null>(null)
@@ -151,23 +153,28 @@ export function Timeline({
 
   return (
     <div className="chrome flex h-[248px] shrink-0 flex-col border-t border-line bg-panel">
-      <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
-        <span className="text-[10px] font-medium tracking-[0.16em] text-mute uppercase">Timeline</span>
-        <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-h-10 shrink-0 items-center gap-3 border-b border-line px-3">
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-[10px] font-medium tracking-[0.16em] text-mute uppercase">Timeline</span>
           {saveStatus !== 'idle' && (
             <span className={cn(
-              'text-[10px] uppercase tracking-wider',
-              saveStatus === 'error' ? 'text-mark' : 'text-dim',
+              'rounded-full border px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider',
+              saveStatus === 'error'
+                ? 'border-mark/30 bg-mark/10 text-mark'
+                : 'border-line bg-well text-dim',
             )}>
               {saveStatus === 'saving' ? 'Saving' : saveStatus === 'saved' ? 'Saved' : 'Save failed'}
             </span>
           )}
+        </div>
+        <div className="min-w-0 flex-1 overflow-x-auto scroll-thin">
+          <div className="flex min-w-max items-center justify-end gap-1.5">
           <button
             type="button"
             title="Split at playhead (C)"
             aria-label="Split at playhead"
             onClick={onSplit}
-            className="grid size-6 place-items-center rounded-md text-mute hover:bg-wash hover:text-cream"
+            className="grid size-7 place-items-center rounded-md text-mute transition-colors hover:bg-wash hover:text-cream"
           >
             <Scissors size={11} />
           </button>
@@ -178,8 +185,8 @@ export function Timeline({
             aria-pressed={snapEnabled}
             onClick={onToggleSnap}
             className={cn(
-              'grid size-6 place-items-center rounded-md hover:bg-wash hover:text-cream',
-              snapEnabled ? 'bg-wash-strong text-cream' : 'text-mute',
+              'grid size-7 place-items-center rounded-md transition-colors hover:bg-wash hover:text-cream',
+              snapEnabled ? 'bg-wash-strong text-cream ring-1 ring-inset ring-line-strong' : 'text-mute',
             )}
           >
             <Magnet size={11} />
@@ -190,35 +197,75 @@ export function Timeline({
               title="Unlink (U)"
               aria-label="Unlink"
               onClick={onUnlink}
-              className="grid size-6 place-items-center rounded-md text-mute hover:bg-wash hover:text-cream"
+              className="grid size-7 place-items-center rounded-md text-mute transition-colors hover:bg-wash hover:text-cream"
             >
               <Unlink size={11} />
             </button>
           )}
-          <div className="flex rounded-md border border-line p-px">
-            <button
+          <div
+            className="relative flex items-center gap-0.5 rounded-lg border border-line bg-well p-0.5"
+            role="group"
+            aria-label="Edit mode"
+          >
+            <span className="hidden px-1 text-[9px] font-medium tracking-[0.12em] text-dim uppercase xl:inline">
+              Mode
+            </span>
+            <motion.button
               type="button"
+              title="Overwrite: replace content at the insertion point (R)"
+              aria-label="Overwrite edit mode"
+              aria-pressed={editMode === 'overwrite'}
               onClick={() => onEditMode('overwrite')}
+              whileHover={reduce ? undefined : { y: -1 }}
+              whileTap={reduce ? undefined : { scale: 0.96 }}
+              transition={{ type: 'spring', stiffness: 520, damping: 30 }}
               className={cn(
-                'h-5 rounded-[5px] px-1.5 text-[9px] tracking-wider uppercase',
-                editMode === 'overwrite' ? 'bg-wash-strong text-cream' : 'text-dim hover:text-mute',
+                'relative isolate z-10 h-6 rounded-md px-2.5 text-[10px] font-medium transition-colors',
+                editMode === 'overwrite'
+                  ? 'text-ink'
+                  : 'text-dim hover:bg-wash hover:text-cream',
               )}
             >
-              Over
-            </button>
-            <button
+              {editMode === 'overwrite' && (
+                <motion.span
+                  layoutId="timeline-edit-mode"
+                  className="absolute inset-0 -z-10 rounded-md bg-cream shadow-sm"
+                  transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 34, mass: 0.7 }}
+                />
+              )}
+              <span className="relative">Overwrite</span>
+            </motion.button>
+            <motion.button
               type="button"
+              title="Ripple: push following clips when inserting or trimming (R)"
+              aria-label="Ripple edit mode"
+              aria-pressed={editMode === 'ripple'}
               onClick={() => onEditMode('ripple')}
+              whileHover={reduce ? undefined : { y: -1 }}
+              whileTap={reduce ? undefined : { scale: 0.96 }}
+              transition={{ type: 'spring', stiffness: 520, damping: 30 }}
               className={cn(
-                'h-5 rounded-[5px] px-1.5 text-[9px] tracking-wider uppercase',
-                editMode === 'ripple' ? 'bg-wash-strong text-cream' : 'text-dim hover:text-mute',
+                'relative isolate z-10 h-6 rounded-md px-2.5 text-[10px] font-medium transition-colors',
+                editMode === 'ripple'
+                  ? 'text-ink'
+                  : 'text-dim hover:bg-wash hover:text-cream',
               )}
             >
-              Ripple
-            </button>
+              {editMode === 'ripple' && (
+                <motion.span
+                  layoutId="timeline-edit-mode"
+                  className="absolute inset-0 -z-10 rounded-md bg-cream shadow-sm"
+                  transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 34, mass: 0.7 }}
+                />
+              )}
+              <span className="relative">Ripple</span>
+            </motion.button>
           </div>
-          <span className="hidden text-[10px] text-dim lg:inline">
-            C splits · S snap · R mode · Del removes
+          <span className="hidden items-center gap-1.5 whitespace-nowrap text-[10px] text-dim 2xl:flex">
+            <kbd className="rounded border border-line bg-well px-1 py-0.5 font-mono text-[9px]">C</kbd> split
+            <kbd className="rounded border border-line bg-well px-1 py-0.5 font-mono text-[9px]">S</kbd> snap
+            <kbd className="rounded border border-line bg-well px-1 py-0.5 font-mono text-[9px]">R</kbd> mode
+            <kbd className="rounded border border-line bg-well px-1 py-0.5 font-mono text-[9px]">Del</kbd> remove
           </span>
           <label className="flex items-center gap-2 text-[10px] text-dim">
             Zoom
@@ -231,6 +278,7 @@ export function Timeline({
               className="w-24 accent-cream"
             />
           </label>
+          </div>
         </div>
       </div>
 

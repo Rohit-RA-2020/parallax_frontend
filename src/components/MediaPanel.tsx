@@ -21,6 +21,7 @@ const toolFilter: Partial<Record<ToolId, MediaKind | 'all'>> = {
 }
 
 type Props = {
+  width: number
   tool: ToolId
   assets: MediaAsset[]
   loading: boolean
@@ -31,7 +32,7 @@ type Props = {
   onDelete?: (asset: MediaAsset) => void
 }
 
-export function MediaPanel({ tool, assets, loading, hasProject, onDuration, onFrame, onAdd, onDelete }: Props) {
+export function MediaPanel({ width, tool, assets, loading, hasProject, onDuration, onFrame, onAdd, onDelete }: Props) {
   const reduce = useReducedMotion()
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<MediaKind | 'all'>('all')
@@ -59,7 +60,7 @@ export function MediaPanel({ tool, assets, loading, hasProject, onDuration, onFr
             : 'Media'
 
   return (
-    <aside className="chrome flex h-full w-[268px] shrink-0 flex-col border-r border-line bg-well">
+    <aside className="chrome flex h-full w-full shrink-0 flex-col border-r border-line bg-well" style={{ width }}>
       <div className="flex h-11 items-center justify-between px-3">
         <h2 className="text-[11px] font-medium tracking-[0.16em] text-mute uppercase">
           <AnimatePresence mode="wait" initial={false}>
