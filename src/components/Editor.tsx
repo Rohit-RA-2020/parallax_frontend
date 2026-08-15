@@ -4,10 +4,18 @@ import type { ChatMessage, Clip, Grade, MediaAsset, ToolId } from '../types'
 import {
   PROJECT_FPS,
   clipAtTime,
-  initialClips,
-  initialMessages,
 } from '../data/project'
 import { clipFromAsset, sequenceDuration } from '../lib/edit'
+import {
+  createProject as createRemoteProject,
+  listProjectMedia,
+  listProjects,
+  mediaURL,
+  streamAgent,
+  uploadProjectMedia,
+  type ProjectMedia,
+  type ProjectRecord,
+} from '../lib/api'
 import { TopBar } from './TopBar'
 import { ToolRail } from './ToolRail'
 import { MediaPanel } from './MediaPanel'
@@ -26,13 +34,23 @@ export function Editor() {
   const [muted, setMuted] = useState(false)
   const [safeArea, setSafeArea] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>('clip-highway')
-  const [clips, setClips] = useState<Clip[]>(initialClips)
+  const [clips, setClips] = useState<Clip[]>([])
   const [pxPerSecond, setPxPerSecond] = useState(24)
-  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
-  const [grade, setGrade] = useState<Grade>({ warmth: 0, contrast: 0.15, saturation: 0.1 })
+  const [grade] = useState<Grade>({ warmth: 0, contrast: 0.15, saturation: 0.1 })
   const [toast, setToast] = useState<string | null>(null)
+  const [projects, setProjects] = useState<ProjectRecord[]>([])
+  const [projectId, setProjectId] = useState('')
+  const [assets, setAssets] = useState<MediaAsset[]>([])
+  const [mediaLoading, setMediaLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [sessionId, setSessionId] = useState('')
+  const [createOpen, setCreateOpen] = useState(false)
+  const [projectNameDraft, setProjectNameDraft] = useState('')
+  const [creatingProject, setCreatingProject] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   const duration = useMemo(() => sequenceDuration(clips), [clips])
   const durationRef = useRef(duration)
@@ -41,6 +59,41 @@ export function Editor() {
   selectedIdRef.current = selectedId
   const clipsRef = useRef(clips)
   clipsRef.current = clips
+
+  const refreshMedia = useCallback(async (id: string) => {
+    setMediaLoading(true)
+    try {
+      const items = await listProjectMedia(id)
+      setAssets(items.map(toMediaAsset))
+    } catch (error) {
+      setToast(errorMessage(error))
+    } finally {
+      setMediaLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let live = true
+    listProjects()
+      .then((items) => {
+        if (!live) return
+        setProjects(items)
+        if (items[0]) {
+          setProjectId(items[0].id)
+          setMessages([{
+            id: uid(),
+            role: 'assistant',
+            text: `${items[0].name} is ready. Upload media, add it to the timeline, or ask me to inspect and transform project files.`,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          }])
+          void refreshMedia(items[0].id)
+        }
+      })
+      .catch((error) => {
+        if (live) setToast(`Backend unavailable: ${errorMessage(error)}`)
+      })
+    return () => { live = false }
+  }, [refreshMedia])
 
   const seek = useCallback((time: number) => {
     setCurrentTime(Math.min(durationRef.current, Math.max(0, time)))
@@ -144,24 +197,113 @@ export function Editor() {
     return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 
-  function send(text: string) {
+  function openProject(id: string, name?: string) {
+    const project = projects.find((item) => item.id === id)
+    const projectName = name ?? project?.name ?? 'Project'
+    setProjectId(id)
+    setSessionId('')
+    setClips([])
+    setSelectedId(null)
+    setCurrentTime(0)
+    setMessages([{
+      id: uid(),
+      role: 'assistant',
+      text: `${projectName} is ready. Upload media, add it to the timeline, or ask me to inspect and transform project files.`,
+      time: clock(),
+    }])
+    void refreshMedia(id)
+  }
+
+  async function newProject(name: string) {
+    name = name.trim()
+    if (!name) return
+    setCreatingProject(true)
+    try {
+      const project = await createRemoteProject(name)
+      setProjects((current) => [project, ...current])
+      openProject(project.id, project.name)
+      setCreateOpen(false)
+      setProjectNameDraft('')
+      setToast(`${project.name} created`)
+    } catch (error) {
+      setToast(errorMessage(error))
+    } finally {
+      setCreatingProject(false)
+    }
+  }
+
+  async function upload(files: File[]) {
+    if (!projectId || files.length === 0) return
+    setUploading(true)
+    try {
+      await uploadProjectMedia(projectId, files)
+      await refreshMedia(projectId)
+      const latest = await listProjects()
+      setProjects(latest)
+      setToast(`${files.length} ${files.length === 1 ? 'file' : 'files'} uploaded`)
+    } catch (error) {
+      setToast(errorMessage(error))
+    } finally {
+      setUploading(false)
+      if (fileInput.current) fileInput.current.value = ''
+    }
+  }
+
+  async function send(text: string) {
     const value = text.trim()
     if (!value || pending) return
+    if (!projectId) {
+      setToast('Create a project before using Director')
+      return
+    }
     const userMsg: ChatMessage = { id: uid(), role: 'user', text: value, time: clock() }
-    setMessages((m) => [...m, userMsg])
+    const responseID = uid()
+    setMessages((m) => [
+      ...m,
+      userMsg,
+      { id: responseID, role: 'assistant', text: '', time: clock() },
+    ])
     setDraft('')
     setPending(true)
-
-    window.setTimeout(() => {
-      const { reply, nextClips, nextGrade } = interpret(value, clips, grade)
-      if (nextClips) setClips(nextClips)
-      if (nextGrade) setGrade(nextGrade)
-      setMessages((m) => [
-        ...m,
-        { id: uid(), role: 'assistant', text: reply, time: clock() },
-      ])
+    let streamError = ''
+    try {
+      await streamAgent({ projectID: projectId, sessionID: sessionId, message: value }, (event) => {
+        if (event.type === 'session' && typeof event.data.session_id === 'string') {
+          setSessionId(event.data.session_id)
+        }
+        if (event.type === 'text' && typeof event.data.delta === 'string') {
+          setMessages((current) => current.map((message) =>
+            message.id === responseID ? { ...message, text: message.text + event.data.delta } : message,
+          ))
+        }
+        if (event.type === 'step' && event.data.phase === 'think') {
+          setMessages((current) => current.map((message) =>
+            message.id === responseID && message.text.trim()
+              ? { ...message, text: message.text.trimEnd() + '\n\n' }
+              : message,
+          ))
+        }
+        if (event.type === 'tool_call' && typeof event.data.name === 'string') {
+          setToast(`Director is running ${event.data.name.replaceAll('_', ' ')}`)
+        }
+        if (event.type === 'error' && typeof event.data.message === 'string') {
+          streamError = event.data.message
+        }
+      })
+      if (streamError) throw new Error(streamError)
+      setMessages((current) => current.map((message) =>
+        message.id === responseID && !message.text
+          ? { ...message, text: 'The operation completed without a written summary.' }
+          : message,
+      ))
+      await refreshMedia(projectId)
+    } catch (error) {
+      setMessages((current) => current.map((message) =>
+        message.id === responseID ? { ...message, text: `I couldn't complete that: ${errorMessage(error)}` } : message,
+      ))
+    } finally {
       setPending(false)
-    }, 720)
+    }
   }
 
 
@@ -169,7 +311,24 @@ export function Editor() {
   return (
     <LayoutGroup>
     <div className="chrome relative flex h-full min-w-[1100px] flex-col bg-ink text-cream">
-      <TopBar onExport={() => setToast('Export is waiting on the backend — visuals only for now.')} />
+      <TopBar
+        projects={projects}
+        projectId={projectId}
+        projectName="No project"
+        uploading={uploading}
+        onProject={(id) => openProject(id)}
+        onCreateProject={() => setCreateOpen(true)}
+        onUpload={() => fileInput.current?.click()}
+        onExport={() => setToast('Ask Director to render an output; completed files appear in this project.')}
+      />
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        accept="video/*,audio/*,image/*,.srt,.ass,.vtt,.lrc"
+        className="hidden"
+        onChange={(event) => void upload(Array.from(event.target.files ?? []))}
+      />
 
       <div className="flex min-h-0 flex-1">
         <ToolRail tool={tool} onChange={setToolAndPanel} />
@@ -183,7 +342,16 @@ export function Editor() {
               transition={reduce ? { duration: 0 } : panelTransition}
               className="h-full shrink-0 overflow-hidden"
             >
-              <MediaPanel tool={tool} onAdd={(asset) => addAsset(asset)} />
+              <MediaPanel
+                tool={tool}
+                assets={assets}
+                loading={mediaLoading}
+                hasProject={!!projectId}
+                onDuration={(id, duration) => setAssets((current) => current.map((asset) =>
+                  asset.id === id ? { ...asset, duration } : asset,
+                ))}
+                onAdd={(asset) => addAsset(asset)}
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -254,6 +422,65 @@ export function Editor() {
       </div>
 
       <AnimatePresence>
+        {createOpen && (
+          <motion.div
+            initial={reduce ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reduce ? undefined : { opacity: 0 }}
+            className="absolute inset-0 z-[70] grid place-items-center bg-black/65 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-project-title"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget && !creatingProject) setCreateOpen(false)
+            }}
+          >
+            <motion.form
+              initial={reduce ? false : { opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={reduce ? undefined : { opacity: 0, y: 8, scale: 0.98 }}
+              onSubmit={(event) => {
+                event.preventDefault()
+                void newProject(projectNameDraft)
+              }}
+              className="w-[380px] rounded-xl border border-line bg-panel p-5 shadow-2xl"
+            >
+              <h2 id="create-project-title" className="text-[16px] font-medium text-cream">Create a project</h2>
+              <p className="mt-1 text-[12px] text-mute">Uploads and Director operations stay isolated inside this project.</p>
+              <label className="mt-5 block text-[10px] tracking-[0.14em] text-dim uppercase">
+                Project name
+                <input
+                  autoFocus
+                  value={projectNameDraft}
+                  onChange={(event) => setProjectNameDraft(event.target.value)}
+                  maxLength={120}
+                  placeholder="Campaign cut"
+                  className="mt-2 h-10 w-full rounded-lg border border-line bg-well px-3 text-[13px] normal-case tracking-normal text-cream outline-none placeholder:text-dim focus:border-line-strong"
+                />
+              </label>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={creatingProject}
+                  onClick={() => setCreateOpen(false)}
+                  className="h-9 rounded-md px-3 text-[12px] text-mute hover:bg-wash hover:text-cream"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!projectNameDraft.trim() || creatingProject}
+                  className="h-9 rounded-md bg-cream px-4 text-[12px] font-medium text-ink disabled:opacity-40"
+                >
+                  {creatingProject ? 'Creating…' : 'Create project'}
+                </button>
+              </div>
+            </motion.form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {toast && (
           <motion.div
             key={toast}
@@ -276,60 +503,21 @@ function uid() {
   return Math.random().toString(36).slice(2, 9)
 }
 
-function interpret(text: string, clips: Clip[], grade: Grade) {
-  const t = text.toLowerCase()
-
-  if (t.includes('trim') || t.includes('tighten') || t.includes('highway')) {
-    const nextClips = clips.map((c) =>
-      c.id === 'clip-highway' ? { ...c, duration: Math.max(4.8, Math.min(c.duration, 5.4)) } : c,
-    )
-    return {
-      reply:
-        'Trimmed Highway 01 to 5.4s and left a six-frame handle. Wheelhouse still comes in on the same cut — tell me if you want that pulled earlier.',
-      nextClips,
-    }
-  }
-
-  if (t.includes('warm') || t.includes('grade') || t.includes('cliff')) {
-    return {
-      reply:
-        'Pushed the cliff shot warmer — more tungsten in the highlights, shadows still cool. Contrast is sitting a touch higher so the horizon holds.',
-      nextGrade: { ...grade, warmth: 0.85, contrast: 0.35, saturation: 0.2 },
-    }
-  }
-
-  if (t.includes('title') || t.includes('card') || t.includes('salt')) {
-    const exists = clips.some((c) => c.id === 'title-open')
-    const nextClips = exists
-      ? clips
-      : [
-          {
-            id: 'title-open',
-            name: 'SALT ROAD',
-            track: 'V2',
-            kind: 'title' as const,
-            start: 0.6,
-            duration: 3.4,
-            color: '#c4a36a',
-          },
-          ...clips,
-        ]
-    return {
-      reply:
-        'Title card is on V2 from 00:00.6 — tracking-wide SALT ROAD over the open. I can slide it later or swap the type if you want something quieter.',
-      nextClips,
-    }
-  }
-
-  if (t.includes('wave') || t.includes('cut on')) {
-    return {
-      reply:
-        'I’d cut Highway → Wheelhouse on the bright edge of the water, about 00:07:18. That’s a visual-only mark for now — say the word and I’ll move the edit.',
-    }
-  }
-
+function toMediaAsset(item: ProjectMedia): MediaAsset {
+  const url = mediaURL(item)
+  const kind = item.kind === 'audio' ? 'audio' : item.kind === 'subtitle' ? 'title' : 'video'
+  const mediaType = item.kind === 'image' ? 'image' : item.kind === 'audio' ? 'audio' : 'video'
   return {
-    reply:
-      'Noted. I can trim, grade, or retitle from here. Point me at a clip — or keep talking and I’ll treat the playhead as the subject.',
+    id: `project-${item.id}`,
+    name: item.name,
+    kind,
+    duration: item.kind === 'audio' ? 30 : item.kind === 'image' ? 5 : item.kind === 'subtitle' ? 4 : 8,
+    thumb: item.kind === 'image' ? url : undefined,
+    src: url,
+    mediaType,
   }
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Unexpected error'
 }

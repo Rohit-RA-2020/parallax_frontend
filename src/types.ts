@@ -12,6 +12,8 @@ export type Clip = {
   start: number
   duration: number
   thumb?: string
+  src?: string
+  mediaType?: 'video' | 'audio' | 'image'
   color: string
   waveSeed?: number
 }
@@ -30,6 +32,8 @@ export type MediaAsset = {
   kind: MediaKind
   duration: number
   thumb?: string
+  src?: string
+  mediaType?: 'video' | 'audio' | 'image'
 }
 
 export type ChatRole = 'user' | 'assistant'

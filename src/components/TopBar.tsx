@@ -1,23 +1,56 @@
-import { Download, Redo2, Share, Undo2 } from 'lucide-react'
+import { Download, Plus, Redo2, Share, Undo2, Upload } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { PROJECT_FPS, PROJECT_NAME, PROJECT_RES } from '../data/project'
+import { PROJECT_FPS, PROJECT_RES } from '../data/project'
+import type { ProjectRecord } from '../lib/api'
 import { softSpring } from '../lib/motion'
 import { ThemeToggle } from './ThemeToggle'
 import { IconButton, Logo, Pill } from './ui'
 
 type Props = {
   onExport: () => void
+  projects: ProjectRecord[]
+  projectId: string
+  projectName: string
+  uploading: boolean
+  onProject: (id: string) => void
+  onCreateProject: () => void
+  onUpload: () => void
 }
 
-export function TopBar({ onExport }: Props) {
+export function TopBar({
+  onExport,
+  projects,
+  projectId,
+  projectName,
+  uploading,
+  onProject,
+  onCreateProject,
+  onUpload,
+}: Props) {
   const reduce = useReducedMotion()
   return (
     <header className="chrome flex h-12 shrink-0 items-center justify-between border-b border-line bg-panel px-3">
       <div className="flex min-w-0 items-center gap-5">
         <Logo />
         <div className="hidden h-4 w-px bg-line-strong sm:block" />
-        <div className="hidden min-w-0 items-center gap-2.5 sm:flex">
-          <span className="truncate text-[13px] font-medium text-cream">{PROJECT_NAME}</span>
+        <div className="hidden min-w-0 items-center gap-2 sm:flex">
+          {projects.length ? (
+            <select
+              value={projectId}
+              onChange={(event) => onProject(event.target.value)}
+              aria-label="Current project"
+              className="max-w-44 rounded-md border border-line bg-well px-2 py-1 text-[12px] text-cream outline-none"
+            >
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="truncate text-[13px] font-medium text-mute">{projectName}</span>
+          )}
+          <IconButton label="New project" onClick={onCreateProject}>
+            <Plus size={14} />
+          </IconButton>
           <Pill>Draft</Pill>
         </div>
       </div>
@@ -32,6 +65,18 @@ export function TopBar({ onExport }: Props) {
       </div>
 
       <div className="flex items-center gap-2">
+        <motion.button
+          type="button"
+          onClick={onUpload}
+          disabled={!projectId || uploading}
+          whileHover={reduce ? undefined : { y: -1 }}
+          whileTap={reduce ? undefined : { scale: 0.97 }}
+          transition={softSpring}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-2.5 text-[12px] text-mute transition-colors hover:border-line-strong hover:text-cream disabled:opacity-40"
+        >
+          <Upload size={13} />
+          {uploading ? 'Uploading…' : 'Upload'}
+        </motion.button>
         <ThemeToggle />
         <div className="mr-1 hidden items-center gap-2 text-[11px] text-mute md:flex">
           <span className="font-mono">{PROJECT_FPS} fps</span>

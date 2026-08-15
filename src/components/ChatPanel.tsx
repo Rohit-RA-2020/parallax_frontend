@@ -6,6 +6,7 @@ import { suggestions } from '../data/project'
 import { formatRange } from '../lib/time'
 import { cn } from '../lib/cn'
 import { fade, softSpring } from '../lib/motion'
+import { MarkdownText } from './MarkdownText'
 
 type Props = {
   messages: ChatMessage[]
@@ -186,7 +187,7 @@ function Message({ message, reduce }: { message: ChatMessage; reduce: boolean })
             : 'text-mute',
         )}
       >
-        {message.text}
+        {mine ? message.text : <MarkdownText>{message.text}</MarkdownText>}
       </div>
     </motion.div>
   )

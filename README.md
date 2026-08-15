@@ -1,32 +1,29 @@
-# React + TypeScript + Vite
+# Parallax frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React/Vite editor for the Parallax project-scoped media agent.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Start the backend first on port 8080, then:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The frontend uses `http://localhost:8080` by default. Override it when needed:
+
+```bash
+VITE_API_URL=http://127.0.0.1:8080 npm run dev
+```
+
+## Connected workflow
+
+1. Create or select a project in the top bar.
+2. Upload video, audio, image, or subtitle files.
+3. Click or drag media from the bin onto the timeline.
+4. Ask Director to inspect or transform project files.
+5. Generated media is refreshed into the same project's bin.
+
+Project metadata and files are persisted by the Go backend. Timeline layout is
+currently frontend session state and is not yet persisted.

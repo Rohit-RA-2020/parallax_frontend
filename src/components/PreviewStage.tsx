@@ -8,7 +8,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { type PointerEvent } from 'react'
+import { useEffect, useRef, type PointerEvent } from 'react'
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import type { Clip, Grade } from '../types'
 import { PROJECT_FPS } from '../data/project'
@@ -48,6 +48,7 @@ export function PreviewStage({
   onToggleSafe,
 }: Props) {
   const reduce = useReducedMotion()
+  const videoRef = useRef<HTMLVideoElement>(null)
   const filter = [
     `contrast(${1 + grade.contrast * 0.18})`,
     `saturate(${1 + grade.saturation * 0.2})`,
@@ -63,6 +64,22 @@ export function PreviewStage({
   const rotateY = useSpring(useTransform(px, [-0.5, 0.5], [-1.6, 1.6]), spring)
   const shiftX = useSpring(useTransform(px, [-0.5, 0.5], [-5, 5]), spring)
   const shiftY = useSpring(useTransform(py, [-0.5, 0.5], [-3, 3]), spring)
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || clip?.mediaType !== 'video') return
+    const localTime = Math.max(0, currentTime - clip.start)
+    if (!isPlaying || Math.abs(video.currentTime - localTime) > 0.5) {
+      video.currentTime = Math.min(localTime, Number.isFinite(video.duration) ? video.duration : localTime)
+    }
+  }, [clip, currentTime, isPlaying])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || clip?.mediaType !== 'video') return
+    if (isPlaying) void video.play().catch(() => undefined)
+    else video.pause()
+  }, [clip?.id, clip?.mediaType, isPlaying])
 
   function onWellMove(e: PointerEvent<HTMLDivElement>) {
     if (reduce) return
@@ -116,7 +133,22 @@ export function PreviewStage({
           }
         >
           <AnimatePresence initial={false}>
-            {clip?.thumb ? (
+            {clip?.mediaType === 'video' && clip.src ? (
+              <motion.video
+                ref={videoRef}
+                key={clip.id}
+                src={clip.src}
+                muted={muted}
+                playsInline
+                preload="metadata"
+                initial={reduce ? false : { opacity: 0, scale: 1.025 }}
+                animate={{ opacity: 1, scale: isPlaying ? 1.018 : 1.006 }}
+                exit={reduce ? undefined : { opacity: 0 }}
+                transition={{ opacity: fadeSlow, scale: { duration: 1.4, ease: 'linear' } }}
+                className="preview-plate absolute inset-0 size-full object-cover"
+                style={{ filter }}
+              />
+            ) : clip?.thumb ? (
               <motion.img
                 key={clip.id}
                 src={clip.thumb}

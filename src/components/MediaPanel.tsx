@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Music2, Search, Type } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { mediaAssets } from '../data/project'
 import { formatClock } from '../lib/time'
 import { cn } from '../lib/cn'
 import { fade } from '../lib/motion'
@@ -23,10 +22,14 @@ const toolFilter: Partial<Record<ToolId, MediaKind | 'all'>> = {
 
 type Props = {
   tool: ToolId
+  assets: MediaAsset[]
+  loading: boolean
+  hasProject: boolean
+  onDuration: (id: string, duration: number) => void
   onAdd: (asset: MediaAsset) => void
 }
 
-export function MediaPanel({ tool, onAdd }: Props) {
+export function MediaPanel({ tool, assets, loading, hasProject, onDuration, onAdd }: Props) {
   const reduce = useReducedMotion()
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<MediaKind | 'all'>('all')
@@ -35,12 +38,12 @@ export function MediaPanel({ tool, onAdd }: Props) {
   const activeTab = forced ?? tab
 
   const items = useMemo(() => {
-    return mediaAssets.filter((asset) => {
+    return assets.filter((asset) => {
       const matchesTab = activeTab === 'all' || asset.kind === activeTab
       const matchesQuery = asset.name.toLowerCase().includes(query.toLowerCase())
       return matchesTab && matchesQuery
     })
-  }, [activeTab, query])
+  }, [activeTab, query, assets])
 
   const heading =
     tool === 'titles'
@@ -110,6 +113,14 @@ export function MediaPanel({ tool, onAdd }: Props) {
           )}
 
           <div className="grid grid-cols-2 content-start gap-2 overflow-y-auto px-3 pb-4 scroll-thin">
+            {!loading && items.length === 0 && (
+              <div className="col-span-2 rounded-lg border border-dashed border-line px-3 py-8 text-center text-[11px] leading-relaxed text-dim">
+                {hasProject ? 'No matching media. Upload files to this project.' : 'Create a project to start uploading media.'}
+              </div>
+            )}
+            {loading && (
+              <div className="col-span-2 px-2 py-8 text-center text-[11px] text-dim">Loading project media…</div>
+            )}
             {items.map((asset, i) => (
               <motion.div
                 key={asset.id}
@@ -131,7 +142,18 @@ export function MediaPanel({ tool, onAdd }: Props) {
                   className="group w-full cursor-grab text-left active:cursor-grabbing"
                 >
                   <div className="relative aspect-video overflow-hidden rounded-md border border-line bg-lift">
-                    {asset.thumb ? (
+                    {asset.mediaType === 'video' && asset.src ? (
+                      <video
+                        src={asset.src}
+                        muted
+                        preload="metadata"
+                        onLoadedMetadata={(event) => {
+                          const duration = event.currentTarget.duration
+                          if (Number.isFinite(duration) && duration > 0) onDuration(asset.id, duration)
+                        }}
+                        className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                      />
+                    ) : asset.thumb ? (
                       <img
                         src={asset.thumb}
                         alt=""

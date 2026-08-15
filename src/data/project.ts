@@ -122,10 +122,10 @@ export const initialMessages: ChatMessage[] = [
 ]
 
 export const suggestions = [
-  'Trim the highway shot',
-  'Warm the cliff grade',
-  'Add a title card',
-  'Cut on the wave crash',
+  'Inspect the project media',
+  'Create a short highlight',
+  'Strip audio from the video',
+  'Generate a thumbnail',
 ]
 
 export function clipAtTime(clips: Clip[], time: number, kind: Clip['kind'] = 'video') {

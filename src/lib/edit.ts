@@ -40,6 +40,8 @@ export function clipFromAsset(asset: MediaAsset, start: number, track?: string):
     start: Math.max(0, start),
     duration: asset.duration,
     thumb: asset.thumb,
+    src: asset.src,
+    mediaType: asset.mediaType,
     color: COLOR_FOR[kind],
     waveSeed: kind === 'audio' ? Math.floor(Math.random() * 200) + 1 : undefined,
   }
