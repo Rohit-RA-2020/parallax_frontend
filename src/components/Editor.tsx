@@ -50,12 +50,14 @@ import {
   listProjects,
   mediaURL,
   normalizeSettings,
+  normalizeThinkingEffort,
   putProjectTimeline,
   putSettings,
   streamAgent,
   uploadProjectMedia,
   type ChatRecord,
   type LLMSettings,
+  type ThinkingEffort,
   type ProjectMedia,
   type ProjectRecord,
   type ProjectHistory,
@@ -106,6 +108,9 @@ export function Editor() {
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [settings, setSettings] = useState<LLMSettings | null>(null)
+  const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffort>(() => (
+    normalizeThinkingEffort(readPref('parallax.thinkingEffort', 'medium'))
+  ))
   const settingsRef = useRef(settings)
   settingsRef.current = settings
   const [projectNameDraft, setProjectNameDraft] = useState('')
@@ -856,6 +861,7 @@ export function Editor() {
         sessionID: sessionId,
         profileID: settingsRef.current?.active_id,
         message: value,
+        thinkingEffort,
       }, (event) => {
         if (event.type === 'session' && typeof event.data.session_id === 'string') {
           setSessionId(event.data.session_id)
@@ -913,6 +919,11 @@ export function Editor() {
       setSettings(previous)
       setToast(errorMessage(error))
     }
+  }
+
+  function selectThinkingEffort(value: ThinkingEffort) {
+    setThinkingEffort(value)
+    writePref('parallax.thinkingEffort', value)
   }
 
   return (
@@ -1055,6 +1066,8 @@ export function Editor() {
                 models={settings?.profiles ?? []}
                 modelId={settings?.active_id ?? ''}
                 onModel={(id) => void selectModel(id)}
+                thinkingEffort={thinkingEffort}
+                onThinkingEffort={selectThinkingEffort}
               />
             </motion.div>
           ) : (

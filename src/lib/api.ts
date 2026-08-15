@@ -41,6 +41,14 @@ export type AgentEvent = {
   data: Record<string, unknown>
 }
 
+export type ThinkingEffort = 'low' | 'medium' | 'high'
+
+export const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'medium'
+
+export function normalizeThinkingEffort(value: string | null | undefined): ThinkingEffort {
+  return value === 'low' || value === 'high' ? value : DEFAULT_THINKING_EFFORT
+}
+
 export type LLMProfile = {
   id: string
   label?: string
@@ -289,7 +297,13 @@ export function profileLabel(profile: Pick<LLMProfile, 'label' | 'model' | 'base
 }
 
 export async function streamAgent(
-  input: { projectID: string; sessionID?: string; profileID?: string; message: string },
+  input: {
+    projectID: string
+    sessionID?: string
+    profileID?: string
+    message: string
+    thinkingEffort?: ThinkingEffort
+  },
   onEvent: (event: AgentEvent) => void,
 ) {
   const response = await fetch(API_BASE + '/v1/agent/chat', {
@@ -300,6 +314,7 @@ export async function streamAgent(
       session_id: input.sessionID || undefined,
       profile_id: input.profileID || undefined,
       message: input.message,
+      thinking_effort: input.thinkingEffort || DEFAULT_THINKING_EFFORT,
     }),
   })
   if (!response.ok) {

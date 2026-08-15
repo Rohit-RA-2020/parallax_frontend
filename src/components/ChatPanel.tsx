@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { ArrowUp, ChevronDown, Plus, PanelRightClose, Trash2 } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ChatMessage, Clip } from '../types'
-import type { ChatRecord, LLMProfile } from '../lib/api'
+import type { ChatRecord, LLMProfile, ThinkingEffort } from '../lib/api'
 import { profileLabel } from '../lib/api'
 import { formatRange } from '../lib/time'
 import { cn } from '../lib/cn'
@@ -27,6 +27,8 @@ type Props = {
   models?: LLMProfile[]
   modelId?: string
   onModel?: (id: string) => void
+  thinkingEffort: ThinkingEffort
+  onThinkingEffort: (value: ThinkingEffort) => void
 }
 
 export function ChatPanel({
@@ -46,6 +48,8 @@ export function ChatPanel({
   models = [],
   modelId = '',
   onModel,
+  thinkingEffort,
+  onThinkingEffort,
 }: Props) {
   const reduce = useReducedMotion()
   const end = useRef<HTMLDivElement>(null)
@@ -258,28 +262,63 @@ export function ChatPanel({
           </motion.button>
         </form>
         {models.length > 0 && onModel && activeModel && (
-          <Select value={activeModel.id} onValueChange={onModel}>
-            <SelectTrigger className="mt-2" aria-label="Language model">
-              <span className="truncate">{profileLabel(activeModel)}</span>
-            </SelectTrigger>
-            <SelectContent>
-              {models.map((model) => {
-                const host = profileHost(model.base_url)
-                return (
-                  <SelectItem key={model.id} value={model.id} textValue={profileLabel(model)}>
-                    <span className="flex min-w-0 flex-col">
-                      <span className="truncate">{profileLabel(model)}</span>
-                      {host && <span className="truncate text-[10px] text-dim">{host}</span>}
-                    </span>
-                  </SelectItem>
-                )
-              })}
-            </SelectContent>
-          </Select>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Select value={activeModel.id} onValueChange={onModel}>
+              <SelectTrigger aria-label="Language model">
+                <span className="truncate">{profileLabel(activeModel)}</span>
+              </SelectTrigger>
+              <SelectContent>
+                {models.map((model) => {
+                  const host = profileHost(model.base_url)
+                  return (
+                    <SelectItem key={model.id} value={model.id} textValue={profileLabel(model)}>
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate">{profileLabel(model)}</span>
+                        {host && <span className="truncate text-[10px] text-dim">{host}</span>}
+                      </span>
+                    </SelectItem>
+                  )
+                })}
+              </SelectContent>
+            </Select>
+            <ThinkingEffortSelect value={thinkingEffort} onChange={onThinkingEffort} />
+          </div>
+        )}
+        {(models.length === 0 || !onModel || !activeModel) && (
+          <ThinkingEffortSelect value={thinkingEffort} onChange={onThinkingEffort} className="mt-2" />
         )}
       </div>
     </aside>
   )
+}
+
+function ThinkingEffortSelect({
+  value,
+  onChange,
+  className,
+}: {
+  value: ThinkingEffort
+  onChange: (value: ThinkingEffort) => void
+  className?: string
+}) {
+  return (
+    <Select value={value} onValueChange={(next) => onChange(next as ThinkingEffort)}>
+      <SelectTrigger className={className} aria-label="Thinking effort">
+        <span className="truncate">Thinking: {capitalize(value)}</span>
+      </SelectTrigger>
+      <SelectContent>
+        {(['low', 'medium', 'high'] as ThinkingEffort[]).map((effort) => (
+          <SelectItem key={effort} value={effort} textValue={capitalize(effort)}>
+            {capitalize(effort)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 function Message({ message, reduce }: { message: ChatMessage; reduce: boolean }) {
