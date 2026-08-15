@@ -30,10 +30,11 @@ type Props = {
   onSelect: (id: string | null) => void
   onSeek: (time: number) => void
   onZoom: (px: number) => void
-  onTrim: (id: string, start: number, duration: number) => void
+  onTrim: (id: string, start: number, duration: number, sourceIn: number) => void
   onMove: (id: string, start: number, track: string) => void
   onRemove: (id: string) => void
   onDropAsset: (asset: MediaAsset, start: number, track: string) => void
+  saveStatus?: 'idle' | 'saving' | 'saved' | 'error'
 }
 
 export function Timeline({
@@ -49,6 +50,7 @@ export function Timeline({
   onMove,
   onRemove,
   onDropAsset,
+  saveStatus = 'idle',
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
@@ -107,6 +109,14 @@ export function Timeline({
       <div className="flex h-8 shrink-0 items-center justify-between border-b border-line px-3">
         <span className="text-[10px] font-medium tracking-[0.16em] text-mute uppercase">Timeline</span>
         <div className="flex items-center gap-3">
+          {saveStatus !== 'idle' && (
+            <span className={cn(
+              'text-[10px] uppercase tracking-wider',
+              saveStatus === 'error' ? 'text-mark' : 'text-dim',
+            )}>
+              {saveStatus === 'saving' ? 'Saving' : saveStatus === 'saved' ? 'Saved' : 'Save failed'}
+            </span>
+          )}
           <span className="hidden text-[10px] text-dim sm:inline">
             Click or drag from the bin · Del removes
           </span>
@@ -218,7 +228,7 @@ function TrackLane({
   pxPerSecond: number
   ghost: DropGhost | null
   onSelect: (id: string) => void
-  onTrim: (id: string, start: number, duration: number) => void
+  onTrim: (id: string, start: number, duration: number, sourceIn: number) => void
   onMove: (id: string, start: number, track: string) => void
   onRemove: (id: string) => void
   onDragOver: (e: DragEvent) => void
@@ -284,7 +294,7 @@ function ClipBlock({
   selected: boolean
   pxPerSecond: number
   onSelect: (id: string) => void
-  onTrim: (id: string, start: number, duration: number) => void
+  onTrim: (id: string, start: number, duration: number, sourceIn: number) => void
   onMove: (id: string, start: number, track: string) => void
   onRemove: (id: string) => void
 }) {
@@ -295,6 +305,8 @@ function ClipBlock({
     x: number
     start: number
     duration: number
+    sourceIn: number
+    sourceDuration: number
     armed: boolean
   } | null>(null)
 
@@ -309,6 +321,8 @@ function ClipBlock({
       x: e.clientX,
       start: clip.start,
       duration: clip.duration,
+      sourceIn: clip.sourceIn ?? 0,
+      sourceDuration: clip.sourceDuration ?? 0,
       armed: kind !== 'move',
     }
     capturePointer(e)
@@ -321,6 +335,7 @@ function ClipBlock({
     if ((e.buttons & 1) === 0) return
 
     const dt = (e.clientX - s.x) / pxPerSecond
+    const frame = 1 / PROJECT_FPS
     if (s.kind === 'move') {
       if (!s.armed) {
         if (Math.abs(e.clientX - s.x) < 6) return
@@ -330,14 +345,28 @@ function ClipBlock({
       return
     }
     if (s.kind === 'in') {
-      const start = Math.min(
-        s.start + s.duration - 1 / PROJECT_FPS,
-        Math.max(0, s.start + dt),
-      )
-      onTrim(clip.id, start, s.duration - (start - s.start))
+      const rawStart = Math.min(s.start + s.duration - frame, s.start + dt)
+      let start = rawStart
+      let duration = s.duration - (rawStart - s.start)
+      let sourceIn = s.sourceIn + (rawStart - s.start)
+      if (sourceIn < 0) {
+        start -= sourceIn
+        duration += sourceIn
+        sourceIn = 0
+      }
+      if (start < 0) {
+        sourceIn -= start
+        duration += start
+        start = 0
+      }
+      onTrim(clip.id, start, Math.max(frame, duration), Math.max(0, sourceIn))
       return
     }
-    onTrim(clip.id, s.start, Math.max(1 / PROJECT_FPS, s.duration + dt))
+    let duration = Math.max(frame, s.duration + dt)
+    if (s.sourceDuration > 0) {
+      duration = Math.min(duration, Math.max(frame, s.sourceDuration - s.sourceIn))
+    }
+    onTrim(clip.id, s.start, duration, s.sourceIn)
   }
 
   function end(e: PointerEvent<Element>) {
@@ -383,11 +412,15 @@ function ClipBlock({
       {clip.mediaType === 'video' && clip.src && (
         <>
           <video
-            key={clip.src}
+            key={`${clip.src}:${clip.sourceIn ?? 0}`}
             src={clip.src}
             muted
             preload="metadata"
             playsInline
+            onLoadedMetadata={(event) => {
+              const inPoint = clip.sourceIn ?? 0
+              if (inPoint > 0) event.currentTarget.currentTime = inPoint
+            }}
             className="pointer-events-none absolute inset-0 size-full object-cover"
           />
           <span className="pointer-events-none absolute inset-0 bg-linear-to-t from-black/55 to-black/10" />

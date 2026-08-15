@@ -12,6 +12,7 @@ import { useEffect, useRef, type PointerEvent } from 'react'
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import type { Clip, Grade } from '../types'
 import { PROJECT_FPS } from '../data/project'
+import { clipSourceTime } from '../lib/timeline'
 import { formatRange, formatTimecode } from '../lib/time'
 import { fadeSlow, softSpring } from '../lib/motion'
 import { Atmosphere } from './Atmosphere'
@@ -118,9 +119,10 @@ export function PreviewStage({
           <AnimatePresence initial={false} mode="wait">
             {clip?.mediaType === 'video' && clip.src ? (
               <PreviewVideo
-                key={clip.src}
+                key={`${clip.id}:${clip.src}`}
                 src={clip.src}
                 start={clip.start}
+                sourceIn={clip.sourceIn ?? 0}
                 currentTime={currentTime}
                 isPlaying={isPlaying}
                 muted={muted}
@@ -262,6 +264,7 @@ export function PreviewStage({
 function PreviewVideo({
   src,
   start,
+  sourceIn,
   currentTime,
   isPlaying,
   muted,
@@ -270,6 +273,7 @@ function PreviewVideo({
 }: {
   src: string
   start: number
+  sourceIn: number
   currentTime: number
   isPlaying: boolean
   muted: boolean
@@ -289,7 +293,7 @@ function PreviewVideo({
 
     const seekToClock = () => {
       if (cancelled || video.readyState < HTMLMediaElement.HAVE_METADATA) return
-      const localTime = Math.max(0, currentTimeRef.current - start)
+      const localTime = clipSourceTime({ start, sourceIn }, currentTimeRef.current)
       const duration = Number.isFinite(video.duration) ? video.duration : 0
       const next = duration > 0 ? Math.min(localTime, Math.max(0, duration - 0.001)) : localTime
       if (Math.abs(video.currentTime - next) > 0.04) {
@@ -322,16 +326,16 @@ function PreviewVideo({
       video.removeEventListener('canplay', onCanPlay)
       video.pause()
     }
-  }, [src, start])
+  }, [src, start, sourceIn])
 
   useEffect(() => {
     const video = videoRef.current
     if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return
-    const localTime = Math.max(0, currentTime - start)
+    const localTime = clipSourceTime({ start, sourceIn }, currentTime)
     if (!isPlaying || Math.abs(video.currentTime - localTime) > 0.5) {
       video.currentTime = Math.min(localTime, Number.isFinite(video.duration) ? video.duration : localTime)
     }
-  }, [currentTime, isPlaying, start])
+  }, [currentTime, isPlaying, start, sourceIn])
 
   useEffect(() => {
     const video = videoRef.current
@@ -369,7 +373,10 @@ function ClipInspector({ clip }: { clip: Clip | undefined }) {
         <>
           <span className="font-mono text-dim">{formatRange(clip.start, clip.duration)}</span>
           <span className="text-dim">
-            In <span className="font-mono text-mute">{formatTimecode(clip.start)}</span>
+            Start <span className="font-mono text-mute">{formatTimecode(clip.start)}</span>
+          </span>
+          <span className="text-dim">
+            In <span className="font-mono text-mute">{formatTimecode(clip.sourceIn ?? 0)}</span>
           </span>
           <span className="text-dim">
             Dur <span className="font-mono text-mute">{formatTimecode(clip.duration)}</span>

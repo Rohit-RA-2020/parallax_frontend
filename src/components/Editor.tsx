@@ -7,6 +7,17 @@ import {
 } from '../data/project'
 import { clipFromAsset, sequenceDuration } from '../lib/edit'
 import {
+  applySourceDuration,
+  buildTimelineDocument,
+  clampClip,
+  clipsFromDocument,
+  emptyTimelineDocument,
+  findClipAsset,
+  hydrateClip,
+  snapTime,
+  timelineFingerprint,
+} from '../lib/timeline'
+import {
   createProject as createRemoteProject,
   createProjectChat,
   deleteProjectChat,
@@ -14,10 +25,12 @@ import {
   downloadProjectFile,
   exportProjectMedia,
   getProjectChat,
+  getProjectTimeline,
   listProjectChats,
   listProjectMedia,
   listProjects,
   mediaURL,
+  putProjectTimeline,
   streamAgent,
   uploadProjectMedia,
   type ChatRecord,
@@ -40,13 +53,14 @@ export function Editor() {
   const [tool, setTool] = useState<ToolId>('media')
   const [panelOpen, setPanelOpen] = useState(true)
   const [chatOpen, setChatOpen] = useState(true)
-  const [currentTime, setCurrentTime] = useState(3.2)
+  const [currentTime, setCurrentTime] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
   const [safeArea, setSafeArea] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>('clip-highway')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [clips, setClips] = useState<Clip[]>([])
   const [pxPerSecond, setPxPerSecond] = useState(24)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
@@ -75,11 +89,25 @@ export function Editor() {
   clipsRef.current = clips
   const assetsRef = useRef(assets)
   assetsRef.current = assets
+  const projectIdRef = useRef(projectId)
+  projectIdRef.current = projectId
+  const pxPerSecondRef = useRef(pxPerSecond)
+  pxPerSecondRef.current = pxPerSecond
+  const currentTimeRef = useRef(currentTime)
+  currentTimeRef.current = currentTime
+  const revisionRef = useRef(0)
+  const lastSavedRef = useRef('')
+  const timelineReadyRef = useRef(false)
+  const saveTimerRef = useRef(0)
+  const saveGenRef = useRef(0)
+  const savingRef = useRef(false)
+  const dirtyRef = useRef(false)
 
   const refreshMedia = useCallback(async (id: string) => {
     setMediaLoading(true)
     try {
       const items = await listProjectMedia(id)
+      if (projectIdRef.current !== id) return
       const previous = new Map(
         assetsRef.current.filter((asset) => asset.path).map((asset) => [asset.path as string, asset]),
       )
@@ -112,6 +140,122 @@ export function Editor() {
     setMessages(toUiMessages(detail.messages))
   }, [])
 
+  const flushTimeline = useCallback(async (opts?: { keepalive?: boolean }) => {
+    if (!timelineReadyRef.current) return
+    const id = projectIdRef.current
+    if (!id) return
+    window.clearTimeout(saveTimerRef.current)
+    const doc = buildTimelineDocument({
+      clips: clipsRef.current,
+      fps: PROJECT_FPS,
+      revision: revisionRef.current,
+      playhead: currentTimeRef.current,
+      selectedId: selectedIdRef.current,
+      pxPerSecond: pxPerSecondRef.current,
+    })
+    const fingerprint = timelineFingerprint(doc)
+    if (fingerprint === lastSavedRef.current) {
+      dirtyRef.current = false
+      return
+    }
+    dirtyRef.current = false
+    const gen = saveGenRef.current
+    savingRef.current = true
+    setSaveStatus('saving')
+    try {
+      const saved = await putProjectTimeline(id, doc, opts)
+      if (gen !== saveGenRef.current || projectIdRef.current !== id) return
+      revisionRef.current = saved.revision
+      lastSavedRef.current = fingerprint
+      setSaveStatus('saved')
+    } catch (error) {
+      if (gen !== saveGenRef.current || projectIdRef.current !== id) return
+      dirtyRef.current = true
+      setSaveStatus('error')
+      if (!opts?.keepalive) setToast(errorMessage(error))
+    } finally {
+      if (gen === saveGenRef.current) savingRef.current = false
+    }
+  }, [])
+
+  const scheduleSave = useCallback(() => {
+    if (!timelineReadyRef.current || !projectIdRef.current) return
+    dirtyRef.current = true
+    setSaveStatus((status) => (status === 'saving' ? status : 'idle'))
+    window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = window.setTimeout(() => {
+      void flushTimeline()
+    }, 400)
+  }, [flushTimeline])
+
+  const loadTimeline = useCallback(async (id: string, assets: MediaAsset[]) => {
+    const timeline = await getProjectTimeline(id)
+    if (projectIdRef.current !== id) return
+    const nextClips = clipsFromDocument({
+      ...emptyTimelineDocument(),
+      ...timeline,
+      clips: timeline.clips ?? [],
+    }, assets)
+    const fps = timeline.fps > 0 ? timeline.fps : PROJECT_FPS
+    const playhead = Math.max(0, (timeline.playhead_frame ?? 0) / fps)
+    const selected = timeline.selected_id && nextClips.some((clip) => clip.id === timeline.selected_id)
+      ? timeline.selected_id
+      : null
+    const zoom = timeline.px_per_second && timeline.px_per_second >= 18 && timeline.px_per_second <= 72
+      ? timeline.px_per_second
+      : pxPerSecondRef.current
+    setClips(nextClips)
+    setSelectedId(selected)
+    setCurrentTime(playhead)
+    setPxPerSecond(zoom)
+    revisionRef.current = timeline.revision ?? 0
+    lastSavedRef.current = timelineFingerprint(buildTimelineDocument({
+      clips: nextClips,
+      fps: PROJECT_FPS,
+      revision: timeline.revision ?? 0,
+      playhead,
+      selectedId: selected,
+      pxPerSecond: zoom,
+    }))
+    timelineReadyRef.current = true
+    setSaveStatus(nextClips.length ? 'saved' : 'idle')
+  }, [])
+
+  const bootProject = useCallback(async (id: string) => {
+    projectIdRef.current = id
+    setProjectId(id)
+    timelineReadyRef.current = false
+    lastSavedRef.current = ''
+    revisionRef.current = 0
+    setSaveStatus('idle')
+    setClips([])
+    setSelectedId(null)
+    setCurrentTime(0)
+    setMediaLoading(true)
+    try {
+      const items = await listProjectMedia(id)
+      if (projectIdRef.current !== id) return
+      const previous = new Map(
+        assetsRef.current.filter((asset) => asset.path).map((asset) => [asset.path as string, asset]),
+      )
+      const next = items.map((item) => {
+        const asset = toMediaAsset(item)
+        if (asset.duration > 0 || !asset.path) return asset
+        const known = previous.get(asset.path)
+        return known?.duration ? { ...asset, duration: known.duration } : asset
+      })
+      setAssets(next)
+      await loadTimeline(id, next)
+    } catch (error) {
+      if (projectIdRef.current === id) {
+        setToast(errorMessage(error))
+        timelineReadyRef.current = false
+      }
+    } finally {
+      if (projectIdRef.current === id) setMediaLoading(false)
+    }
+  }, [loadTimeline])
+
   useEffect(() => {
     let live = true
     listProjects()
@@ -119,8 +263,8 @@ export function Editor() {
         if (!live) return
         setProjects(items)
         if (!items[0]) return
-        setProjectId(items[0].id)
-        void refreshMedia(items[0].id)
+        await bootProject(items[0].id)
+        if (!live) return
         try {
           await loadChats(items[0].id)
         } catch (error) {
@@ -131,7 +275,33 @@ export function Editor() {
         if (live) setToast(`Backend unavailable: ${errorMessage(error)}`)
       })
     return () => { live = false }
-  }, [loadChats, refreshMedia])
+  }, [bootProject, loadChats])
+
+  useEffect(() => {
+    scheduleSave()
+  }, [clips, selectedId, pxPerSecond, scheduleSave])
+
+  useEffect(() => {
+    if (isPlaying || !timelineReadyRef.current) return
+    scheduleSave()
+  }, [isPlaying, scheduleSave])
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') void flushTimeline({ keepalive: true })
+    }
+    const onPageHide = () => {
+      void flushTimeline({ keepalive: true })
+    }
+    document.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', onPageHide)
+    return () => {
+      document.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', onPageHide)
+      window.clearTimeout(saveTimerRef.current)
+      void flushTimeline({ keepalive: true })
+    }
+  }, [flushTimeline])
 
   const seek = useCallback((time: number) => {
     setCurrentTime(Math.min(durationRef.current, Math.max(0, time)))
@@ -215,12 +385,23 @@ export function Editor() {
     setPanelOpen(true)
   }
 
-  function trimClip(id: string, start: number, nextDuration: number) {
-    setClips((prev) => prev.map((c) => (c.id === id ? { ...c, start, duration: nextDuration } : c)))
+  function trimClip(id: string, start: number, nextDuration: number, sourceIn: number) {
+    setClips((prev) => prev.map((c) => {
+      if (c.id !== id) return c
+      return clampClip({
+        ...c,
+        start,
+        duration: nextDuration,
+        sourceIn,
+        autoFit: false,
+      }, PROJECT_FPS)
+    }))
   }
 
   function moveClip(id: string, start: number, track: string) {
-    setClips((prev) => prev.map((c) => (c.id === id ? { ...c, start, track } : c)))
+    setClips((prev) => prev.map((c) => (
+      c.id === id ? { ...c, start: snapTime(Math.max(0, start), PROJECT_FPS), track } : c
+    )))
   }
 
   async function deleteAsset(asset: MediaAsset) {
@@ -251,13 +432,12 @@ export function Editor() {
     const linked = { ...asset, duration: nextDuration }
     setClips((current) => current.map((clip) => {
       if (!clipUsesAsset(clip, linked)) return clip
-      if (Math.abs(clip.duration - nextDuration) < 0.05) return clip
-      return { ...clip, duration: nextDuration }
+      return applySourceDuration(clip, nextDuration, PROJECT_FPS)
     }))
   }
 
   function addAsset(asset: MediaAsset, start = currentTime, track?: string) {
-    const clip = clipFromAsset(asset, start, track)
+    const clip = clampClip(clipFromAsset(asset, snapTime(start, PROJECT_FPS), track), PROJECT_FPS)
     setClips((prev) => [...prev, clip])
     setSelectedId(clip.id)
     seek(clip.start)
@@ -269,16 +449,15 @@ export function Editor() {
   }
 
   async function openProject(id: string) {
-    setProjectId(id)
-    setClips([])
-    setSelectedId(null)
-    setCurrentTime(0)
+    if (id === projectIdRef.current) return
+    await flushTimeline()
+    saveGenRef.current += 1
     setDraft('')
     setMessages([])
     setChats([])
     setSessionId('')
-    void refreshMedia(id)
     try {
+      await bootProject(id)
       await loadChats(id)
     } catch (error) {
       setToast(errorMessage(error))
@@ -535,6 +714,7 @@ export function Editor() {
             onMove={moveClip}
             onRemove={removeClip}
             onDropAsset={(asset, start, track) => addAsset(asset, start, track)}
+            saveStatus={saveStatus}
           />
         </div>
 
@@ -706,44 +886,25 @@ function toUiMessages(messages: SavedChatMessage[]): ChatMessage[] {
 }
 
 function clipUsesAsset(clip: Clip, asset: MediaAsset) {
-  if (asset.path && clip.mediaPath === asset.path) return true
-  if (asset.src && clip.src && stripQuery(clip.src) === stripQuery(asset.src)) return true
-  return false
+  return findClipAsset(clip, [asset]) != null
 }
 
 function syncClipMedia(clips: Clip[], assets: MediaAsset[]) {
-  const byPath = new Map(assets.filter((asset) => asset.path).map((asset) => [asset.path, asset]))
-  const bySrc = new Map(
-    assets.filter((asset) => asset.src).map((asset) => [stripQuery(asset.src as string), asset]),
-  )
   return clips.map((clip) => {
-    const asset = (clip.mediaPath && byPath.get(clip.mediaPath))
-      || (clip.src ? bySrc.get(stripQuery(clip.src)) : undefined)
-    if (!asset) return clip
-    const nextDuration = asset.duration > 0 ? asset.duration : clip.duration
+    const next = hydrateClip(clip, assets)
     if (
-      asset.src === clip.src
-      && asset.thumb === clip.thumb
-      && asset.name === clip.name
-      && Math.abs(nextDuration - clip.duration) < 0.05
+      next.src === clip.src
+      && next.thumb === clip.thumb
+      && next.name === clip.name
+      && next.mediaPath === clip.mediaPath
+      && next.sourceDuration === clip.sourceDuration
+      && next.duration === clip.duration
+      && next.sourceIn === clip.sourceIn
     ) {
       return clip
     }
-    return {
-      ...clip,
-      name: asset.name || clip.name,
-      src: asset.src,
-      thumb: asset.thumb ?? clip.thumb,
-      mediaPath: asset.path ?? clip.mediaPath,
-      mediaType: asset.mediaType ?? clip.mediaType,
-      duration: nextDuration,
-    }
+    return next
   })
-}
-
-function stripQuery(url: string) {
-  const index = url.indexOf('?')
-  return index === -1 ? url : url.slice(0, index)
 }
 
 function activeChatKey(projectID: string) {

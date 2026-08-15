@@ -30,5 +30,7 @@ VITE_API_URL=http://127.0.0.1:8080 npm run dev
 7. Director applies edits to the current clip in the bin. Separate files appear
    only when you ask for an export, highlight, or extract.
 
-Project metadata, media, and Director chats are persisted by the Go backend.
-Each project can have multiple chats. Timeline layout is still session-only.
+Project metadata, media, Director chats, and the timeline sequence are
+persisted by the Go backend. Each project can have multiple chats. The cut
+(clip order, trims, source in-points, playhead, zoom) is saved with the
+project and restored on reload.

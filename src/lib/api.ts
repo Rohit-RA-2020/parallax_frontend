@@ -1,3 +1,5 @@
+import type { TimelineDocument } from './timeline'
+
 export const API_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8080').replace(/\/$/, '')
 
 export type ProjectRecord = {
@@ -164,6 +166,25 @@ export async function deleteProjectChat(projectID: string, chatID: string) {
     const body = await response.json().catch(() => ({})) as { error?: string }
     throw new Error(body.error || `Request failed (${response.status})`)
   }
+}
+
+export type { TimelineDocument, TimelineClipRecord } from './timeline'
+
+export function getProjectTimeline(projectID: string) {
+  return request<TimelineDocument>(`/v1/projects/${projectID}/timeline`)
+}
+
+export function putProjectTimeline(
+  projectID: string,
+  body: TimelineDocument,
+  opts?: { keepalive?: boolean },
+) {
+  return request<TimelineDocument>(`/v1/projects/${projectID}/timeline`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    keepalive: opts?.keepalive,
+  })
 }
 
 export async function streamAgent(

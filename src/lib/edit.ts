@@ -32,13 +32,17 @@ export function trackAccepts(trackId: string, kind: TrackKind) {
 
 export function clipFromAsset(asset: MediaAsset, start: number, track?: string): Clip {
   const kind = asset.kind
+  const known = asset.duration > 0
   return {
     id: `clip-${Math.random().toString(36).slice(2, 9)}`,
     name: kind === 'title' ? 'SALT ROAD' : asset.name,
     track: track && trackAccepts(track, kind) ? track : defaultTrack(kind),
     kind,
     start: Math.max(0, start),
-    duration: asset.duration > 0 ? asset.duration : 8,
+    duration: known ? asset.duration : 8,
+    sourceIn: 0,
+    sourceDuration: known ? asset.duration : undefined,
+    autoFit: !known,
     thumb: asset.thumb,
     src: asset.src,
     mediaPath: asset.path,

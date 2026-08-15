@@ -11,6 +11,9 @@ export type Clip = {
   kind: TrackKind
   start: number
   duration: number
+  sourceIn?: number
+  sourceDuration?: number
+  autoFit?: boolean
   thumb?: string
   src?: string
   mediaPath?: string
