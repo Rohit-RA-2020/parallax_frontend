@@ -19,6 +19,18 @@ export type ProjectMedia = {
   modified_at: string
 }
 
+export type ChatRecord = {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export type SavedChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export type AgentEvent = {
   type: string
   data: Record<string, unknown>
@@ -63,6 +75,48 @@ export async function uploadProjectMedia(projectID: string, files: File[]) {
 
 export function mediaURL(item: ProjectMedia) {
   return API_BASE + item.content_url
+}
+
+export async function deleteProjectMedia(projectID: string, path: string) {
+  const encoded = path.split('/').filter(Boolean).map(encodeURIComponent).join('/')
+  const response = await fetch(`${API_BASE}/v1/projects/${projectID}/files/${encoded}`, { method: 'DELETE' })
+  if (!response.ok && response.status !== 204) {
+    const body = await response.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error || `Request failed (${response.status})`)
+  }
+}
+
+export async function listProjectChats(projectID: string) {
+  const result = await request<{ chats: ChatRecord[] }>(`/v1/projects/${projectID}/chats`)
+  return result.chats
+}
+
+export function createProjectChat(projectID: string, title = '') {
+  return request<ChatRecord>(`/v1/projects/${projectID}/chats`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+}
+
+export async function getProjectChat(projectID: string, chatID: string) {
+  return request<ChatRecord & { messages: SavedChatMessage[] }>(`/v1/projects/${projectID}/chats/${chatID}`)
+}
+
+export function renameProjectChat(projectID: string, chatID: string, title: string) {
+  return request<ChatRecord>(`/v1/projects/${projectID}/chats/${chatID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+}
+
+export async function deleteProjectChat(projectID: string, chatID: string) {
+  const response = await fetch(`${API_BASE}/v1/projects/${projectID}/chats/${chatID}`, { method: 'DELETE' })
+  if (!response.ok && response.status !== 204) {
+    const body = await response.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error || `Request failed (${response.status})`)
+  }
 }
 
 export async function streamAgent(

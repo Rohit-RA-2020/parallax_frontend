@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Music2, Search, Type } from 'lucide-react'
+import { Music2, Search, Trash2, Type } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { formatClock } from '../lib/time'
 import { cn } from '../lib/cn'
@@ -27,9 +27,10 @@ type Props = {
   hasProject: boolean
   onDuration: (id: string, duration: number) => void
   onAdd: (asset: MediaAsset) => void
+  onDelete?: (asset: MediaAsset) => void
 }
 
-export function MediaPanel({ tool, assets, loading, hasProject, onDuration, onAdd }: Props) {
+export function MediaPanel({ tool, assets, loading, hasProject, onDuration, onAdd, onDelete }: Props) {
   const reduce = useReducedMotion()
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<MediaKind | 'all'>('all')
@@ -129,53 +130,70 @@ export function MediaPanel({ tool, assets, loading, hasProject, onDuration, onAd
                 transition={{ ...fade, delay: reduce ? 0 : i * 0.03 }}
                 whileHover={reduce ? undefined : { y: -2 }}
               >
-                <button
-                  type="button"
-                  draggable
-                  onClick={() => onAdd(asset)}
-                  onDragStart={(e) => {
-                    setDraggingAsset(asset)
-                    e.dataTransfer.setData(ASSET_MIME, JSON.stringify(asset))
-                    e.dataTransfer.effectAllowed = 'copy'
-                  }}
-                  onDragEnd={() => setDraggingAsset(null)}
-                  className="group w-full cursor-grab text-left active:cursor-grabbing"
-                >
-                  <div className="relative aspect-video overflow-hidden rounded-md border border-line bg-lift">
-                    {asset.mediaType === 'video' && asset.src ? (
-                      <video
-                        src={asset.src}
-                        muted
-                        preload="metadata"
-                        onLoadedMetadata={(event) => {
-                          const duration = event.currentTarget.duration
-                          if (Number.isFinite(duration) && duration > 0) onDuration(asset.id, duration)
-                        }}
-                        className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                      />
-                    ) : asset.thumb ? (
-                      <img
-                        src={asset.thumb}
-                        alt=""
-                        draggable={false}
-                        className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                      />
-                    ) : (
-                      <div className="flex size-full items-center justify-center text-dim">
-                        {asset.kind === 'audio' ? <Music2 size={16} /> : <Type size={16} />}
-                      </div>
-                    )}
-                    <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[9px] text-plate/0 transition-colors group-hover:text-plate">
-                      Add
-                    </span>
-                    <span className="absolute right-1 bottom-1 rounded bg-black/70 px-1 font-mono text-[9px] text-plate">
-                      {formatClock(asset.duration)}
-                    </span>
-                  </div>
-                  <div className="mt-1.5 truncate text-[11px] text-mute transition-colors group-hover:text-cream">
-                    {asset.name}
-                  </div>
-                </button>
+                <div className="group relative">
+                  <button
+                    type="button"
+                    draggable
+                    onClick={() => onAdd(asset)}
+                    onDragStart={(e) => {
+                      setDraggingAsset(asset)
+                      e.dataTransfer.setData(ASSET_MIME, JSON.stringify(asset))
+                      e.dataTransfer.effectAllowed = 'copy'
+                    }}
+                    onDragEnd={() => setDraggingAsset(null)}
+                    className="w-full cursor-grab text-left active:cursor-grabbing"
+                  >
+                    <div className="relative aspect-video overflow-hidden rounded-md border border-line bg-lift">
+                      {asset.mediaType === 'video' && asset.src ? (
+                        <video
+                          key={asset.src}
+                          src={asset.src}
+                          muted
+                          preload="metadata"
+                          onLoadedMetadata={(event) => {
+                            const duration = event.currentTarget.duration
+                            if (Number.isFinite(duration) && duration > 0) onDuration(asset.id, duration)
+                          }}
+                          className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                        />
+                      ) : asset.thumb ? (
+                        <img
+                          src={asset.thumb}
+                          alt=""
+                          draggable={false}
+                          className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                        />
+                      ) : (
+                        <div className="flex size-full items-center justify-center text-dim">
+                          {asset.kind === 'audio' ? <Music2 size={16} /> : <Type size={16} />}
+                        </div>
+                      )}
+                      <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[9px] text-plate/0 transition-colors group-hover:text-plate">
+                        Add
+                      </span>
+                      <span className="absolute right-1 bottom-1 rounded bg-black/70 px-1 font-mono text-[9px] text-plate">
+                        {formatClock(asset.duration)}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 truncate pr-6 text-[11px] text-mute transition-colors group-hover:text-cream">
+                      {asset.name}
+                    </div>
+                  </button>
+                  {onDelete && asset.path && (
+                    <button
+                      type="button"
+                      aria-label={`Delete ${asset.name}`}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        onDelete(asset)
+                      }}
+                      className="absolute top-1 right-1 z-10 grid size-6 place-items-center rounded-md bg-black/70 text-plate/80 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-mark hover:text-plate focus-visible:opacity-100"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  )}
+                </div>
               </motion.div>
             ))}
           </div>

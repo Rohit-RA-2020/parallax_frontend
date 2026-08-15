@@ -1,7 +1,8 @@
-import { useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react'
-import { ArrowUp, PanelRightClose } from 'lucide-react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { ArrowUp, ChevronDown, Plus, PanelRightClose, Trash2 } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ChatMessage, Clip } from '../types'
+import type { ChatRecord } from '../lib/api'
 import { suggestions } from '../data/project'
 import { formatRange } from '../lib/time'
 import { cn } from '../lib/cn'
@@ -10,29 +11,53 @@ import { MarkdownText } from './MarkdownText'
 
 type Props = {
   messages: ChatMessage[]
+  chats: ChatRecord[]
+  chatId: string
+  emptyHint: string
   draft: string
   pending: boolean
   selected: Clip | undefined
   onDraft: (value: string) => void
   onSend: (text: string) => void
   onCollapse: () => void
+  onNewChat: () => void
+  onSelectChat: (id: string) => void
+  onDeleteChat: (id: string) => void
 }
 
 export function ChatPanel({
   messages,
+  chats,
+  chatId,
+  emptyHint,
   draft,
   pending,
   selected,
   onDraft,
   onSend,
   onCollapse,
+  onNewChat,
+  onSelectChat,
+  onDeleteChat,
 }: Props) {
   const reduce = useReducedMotion()
   const end = useRef<HTMLDivElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menu = useRef<HTMLDivElement>(null)
+  const active = chats.find((chat) => chat.id === chatId)
 
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, pending])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointer = (event: MouseEvent) => {
+      if (!menu.current?.contains(event.target as Node)) setMenuOpen(false)
+    }
+    window.addEventListener('mousedown', onPointer)
+    return () => window.removeEventListener('mousedown', onPointer)
+  }, [menuOpen])
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -49,30 +74,105 @@ export function ChatPanel({
   return (
     <aside className="chrome flex h-full w-[360px] shrink-0 flex-col border-l border-line bg-panel">
       <div className="flex h-12 items-center justify-between border-b border-line px-4">
-        <div className="flex items-center gap-2.5">
-          <span className="relative grid size-6 place-items-center rounded-full border border-live/30">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="relative grid size-6 shrink-0 place-items-center rounded-full border border-live/30">
             <motion.span
               className="size-1.5 rounded-full bg-live"
               animate={reduce ? undefined : { scale: [1, 1.18, 1], opacity: [0.75, 1, 0.75] }}
               transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
             />
           </span>
-          <div>
-            <div className="text-[13px] font-medium">Director</div>
-            <div className="text-[10px] tracking-wide text-mute uppercase">On the timeline</div>
+          <div className="relative min-w-0" ref={menu}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              className="flex max-w-[190px] items-center gap-1 text-left"
+              aria-haspopup="listbox"
+              aria-expanded={menuOpen}
+            >
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium">Director</span>
+                <span className="block truncate text-[10px] tracking-wide text-mute uppercase">
+                  {active?.title || 'New chat'}
+                </span>
+              </span>
+              <ChevronDown size={12} className={cn('shrink-0 text-dim transition-transform', menuOpen && 'rotate-180')} />
+            </button>
+            <AnimatePresence>
+              {menuOpen && (
+                <motion.div
+                  initial={reduce ? false : { opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={reduce ? undefined : { opacity: 0, y: -4 }}
+                  transition={fade}
+                  className="absolute top-full left-0 z-30 mt-2 w-[220px] overflow-hidden rounded-lg border border-line bg-panel shadow-[var(--toast-shadow)]"
+                  role="listbox"
+                >
+                  <div className="max-h-56 overflow-y-auto py-1 scroll-thin">
+                    {chats.length === 0 && (
+                      <div className="px-3 py-2 text-[11px] text-dim">No saved chats yet</div>
+                    )}
+                    {chats.map((chat) => (
+                      <div
+                        key={chat.id}
+                        className={cn(
+                          'flex items-center gap-1 px-1.5 py-0.5',
+                          chat.id === chatId && 'bg-wash',
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectChat(chat.id)
+                            setMenuOpen(false)
+                          }}
+                          className="min-w-0 flex-1 truncate rounded-md px-1.5 py-1.5 text-left text-[12px] text-cream hover:bg-wash"
+                        >
+                          {chat.title || 'New chat'}
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Delete ${chat.title || 'chat'}`}
+                          onClick={() => onDeleteChat(chat.id)}
+                          className="grid size-7 shrink-0 place-items-center rounded-md text-dim hover:bg-wash hover:text-cream"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
-        <motion.button
-          type="button"
-          onClick={onCollapse}
-          aria-label="Collapse chat"
-          whileHover={reduce ? undefined : { scale: 1.06 }}
-          whileTap={reduce ? undefined : { scale: 0.92 }}
-          transition={softSpring}
-          className="grid size-8 place-items-center rounded-md text-mute hover:bg-wash hover:text-cream"
-        >
-          <PanelRightClose size={15} />
-        </motion.button>
+        <div className="flex items-center">
+          <motion.button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false)
+              onNewChat()
+            }}
+            aria-label="New chat"
+            whileHover={reduce ? undefined : { scale: 1.06 }}
+            whileTap={reduce ? undefined : { scale: 0.92 }}
+            transition={softSpring}
+            className="grid size-8 place-items-center rounded-md text-mute hover:bg-wash hover:text-cream"
+          >
+            <Plus size={15} />
+          </motion.button>
+          <motion.button
+            type="button"
+            onClick={onCollapse}
+            aria-label="Collapse chat"
+            whileHover={reduce ? undefined : { scale: 1.06 }}
+            whileTap={reduce ? undefined : { scale: 0.92 }}
+            transition={softSpring}
+            className="grid size-8 place-items-center rounded-md text-mute hover:bg-wash hover:text-cream"
+          >
+            <PanelRightClose size={15} />
+          </motion.button>
+        </div>
       </div>
 
       <AnimatePresence initial={false}>
@@ -99,6 +199,9 @@ export function ChatPanel({
       </AnimatePresence>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 scroll-thin">
+        {messages.length === 0 && !pending && (
+          <div className="text-[13px] leading-relaxed text-mute">{emptyHint}</div>
+        )}
         {messages.map((m) => (
           <Message key={m.id} message={m} reduce={!!reduce} />
         ))}
@@ -177,7 +280,7 @@ function Message({ message, reduce }: { message: ChatMessage; reduce: boolean })
     >
       <div className="flex items-center gap-2 text-[10px] text-dim">
         <span>{mine ? 'You' : 'Director'}</span>
-        <span className="font-mono">{message.time}</span>
+        {message.time && <span className="font-mono">{message.time}</span>}
       </div>
       <div
         className={cn(

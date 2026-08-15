@@ -136,7 +136,7 @@ export function PreviewStage({
             {clip?.mediaType === 'video' && clip.src ? (
               <motion.video
                 ref={videoRef}
-                key={clip.id}
+                key={clip.src || clip.id}
                 src={clip.src}
                 muted={muted}
                 playsInline

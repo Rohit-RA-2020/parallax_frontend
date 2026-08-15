@@ -13,6 +13,7 @@ export type Clip = {
   duration: number
   thumb?: string
   src?: string
+  mediaPath?: string
   mediaType?: 'video' | 'audio' | 'image'
   color: string
   waveSeed?: number
@@ -33,6 +34,7 @@ export type MediaAsset = {
   duration: number
   thumb?: string
   src?: string
+  path?: string
   mediaType?: 'video' | 'audio' | 'image'
 }
 

@@ -8,13 +8,20 @@ import {
 import { clipFromAsset, sequenceDuration } from '../lib/edit'
 import {
   createProject as createRemoteProject,
+  createProjectChat,
+  deleteProjectChat,
+  deleteProjectMedia,
+  getProjectChat,
+  listProjectChats,
   listProjectMedia,
   listProjects,
   mediaURL,
   streamAgent,
   uploadProjectMedia,
+  type ChatRecord,
   type ProjectMedia,
   type ProjectRecord,
+  type SavedChatMessage,
 } from '../lib/api'
 import { TopBar } from './TopBar'
 import { ToolRail } from './ToolRail'
@@ -47,6 +54,7 @@ export function Editor() {
   const [mediaLoading, setMediaLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [sessionId, setSessionId] = useState('')
+  const [chats, setChats] = useState<ChatRecord[]>([])
   const [createOpen, setCreateOpen] = useState(false)
   const [projectNameDraft, setProjectNameDraft] = useState('')
   const [creatingProject, setCreatingProject] = useState(false)
@@ -64,7 +72,9 @@ export function Editor() {
     setMediaLoading(true)
     try {
       const items = await listProjectMedia(id)
-      setAssets(items.map(toMediaAsset))
+      const next = items.map(toMediaAsset)
+      setAssets(next)
+      setClips((current) => syncClipMedia(current, next))
     } catch (error) {
       setToast(errorMessage(error))
     } finally {
@@ -72,28 +82,40 @@ export function Editor() {
     }
   }, [])
 
+  const loadChats = useCallback(async (id: string, preferredId?: string) => {
+    let items = await listProjectChats(id)
+    if (items.length === 0) {
+      items = [await createProjectChat(id, '')]
+    }
+    const wanted = preferredId || readActiveChat(id)
+    const active = items.find((chat) => chat.id === wanted) ?? items[0]
+    setChats(items)
+    setSessionId(active.id)
+    writeActiveChat(id, active.id)
+    const detail = await getProjectChat(id, active.id)
+    setMessages(toUiMessages(detail.messages))
+  }, [])
+
   useEffect(() => {
     let live = true
     listProjects()
-      .then((items) => {
+      .then(async (items) => {
         if (!live) return
         setProjects(items)
-        if (items[0]) {
-          setProjectId(items[0].id)
-          setMessages([{
-            id: uid(),
-            role: 'assistant',
-            text: `${items[0].name} is ready. Upload media, add it to the timeline, or ask me to inspect and transform project files.`,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          }])
-          void refreshMedia(items[0].id)
+        if (!items[0]) return
+        setProjectId(items[0].id)
+        void refreshMedia(items[0].id)
+        try {
+          await loadChats(items[0].id)
+        } catch (error) {
+          if (live) setToast(errorMessage(error))
         }
       })
       .catch((error) => {
         if (live) setToast(`Backend unavailable: ${errorMessage(error)}`)
       })
     return () => { live = false }
-  }, [refreshMedia])
+  }, [loadChats, refreshMedia])
 
   const seek = useCallback((time: number) => {
     setCurrentTime(Math.min(durationRef.current, Math.max(0, time)))
@@ -185,6 +207,24 @@ export function Editor() {
     setClips((prev) => prev.map((c) => (c.id === id ? { ...c, start, track } : c)))
   }
 
+  async function deleteAsset(asset: MediaAsset) {
+    if (!projectId || !asset.path) return
+    try {
+      await deleteProjectMedia(projectId, asset.path)
+      setAssets((current) => current.filter((item) => item.id !== asset.id))
+      setClips((current) => current.filter((clip) => !clipUsesAsset(clip, asset)))
+      setSelectedId((cur) => {
+        const selected = clipsRef.current.find((clip) => clip.id === cur)
+        return selected && clipUsesAsset(selected, asset) ? null : cur
+      })
+      const latest = await listProjects()
+      setProjects(latest)
+      setToast(`Deleted ${asset.name}`)
+    } catch (error) {
+      setToast(errorMessage(error))
+    }
+  }
+
   function addAsset(asset: MediaAsset, start = currentTime, track?: string) {
     const clip = clipFromAsset(asset, start, track)
     setClips((prev) => [...prev, clip])
@@ -197,21 +237,73 @@ export function Editor() {
     return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 
-  function openProject(id: string, name?: string) {
-    const project = projects.find((item) => item.id === id)
-    const projectName = name ?? project?.name ?? 'Project'
+  async function openProject(id: string) {
     setProjectId(id)
-    setSessionId('')
     setClips([])
     setSelectedId(null)
     setCurrentTime(0)
-    setMessages([{
-      id: uid(),
-      role: 'assistant',
-      text: `${projectName} is ready. Upload media, add it to the timeline, or ask me to inspect and transform project files.`,
-      time: clock(),
-    }])
+    setDraft('')
+    setMessages([])
+    setChats([])
+    setSessionId('')
     void refreshMedia(id)
+    try {
+      await loadChats(id)
+    } catch (error) {
+      setToast(errorMessage(error))
+    }
+  }
+
+  async function openChat(id: string, chatID: string) {
+    if (!id || chatID === sessionId) return
+    try {
+      const detail = await getProjectChat(id, chatID)
+      setSessionId(chatID)
+      writeActiveChat(id, chatID)
+      setMessages(toUiMessages(detail.messages))
+    } catch (error) {
+      setToast(errorMessage(error))
+    }
+  }
+
+  async function newChat() {
+    if (!projectId) return
+    try {
+      const chat = await createProjectChat(projectId)
+      setChats((current) => [chat, ...current])
+      setSessionId(chat.id)
+      writeActiveChat(projectId, chat.id)
+      setMessages([])
+      setDraft('')
+    } catch (error) {
+      setToast(errorMessage(error))
+    }
+  }
+
+  async function removeChat(chatID: string) {
+    if (!projectId) return
+    try {
+      await deleteProjectChat(projectId, chatID)
+      const remaining = chats.filter((chat) => chat.id !== chatID)
+      if (remaining.length === 0) {
+        const chat = await createProjectChat(projectId)
+        setChats([chat])
+        setSessionId(chat.id)
+        writeActiveChat(projectId, chat.id)
+        setMessages([])
+        return
+      }
+      setChats(remaining)
+      if (sessionId === chatID) {
+        const next = remaining[0]
+        setSessionId(next.id)
+        writeActiveChat(projectId, next.id)
+        const detail = await getProjectChat(projectId, next.id)
+        setMessages(toUiMessages(detail.messages))
+      }
+    } catch (error) {
+      setToast(errorMessage(error))
+    }
   }
 
   async function newProject(name: string) {
@@ -221,7 +313,7 @@ export function Editor() {
     try {
       const project = await createRemoteProject(name)
       setProjects((current) => [project, ...current])
-      openProject(project.id, project.name)
+      await openProject(project.id)
       setCreateOpen(false)
       setProjectNameDraft('')
       setToast(`${project.name} created`)
@@ -270,6 +362,7 @@ export function Editor() {
       await streamAgent({ projectID: projectId, sessionID: sessionId, message: value }, (event) => {
         if (event.type === 'session' && typeof event.data.session_id === 'string') {
           setSessionId(event.data.session_id)
+          writeActiveChat(projectId, event.data.session_id)
         }
         if (event.type === 'text' && typeof event.data.delta === 'string') {
           setMessages((current) => current.map((message) =>
@@ -297,6 +390,12 @@ export function Editor() {
           : message,
       ))
       await refreshMedia(projectId)
+      try {
+        const items = await listProjectChats(projectId)
+        setChats(items)
+      } catch {
+        // keep the in-memory chat list if the refresh fails
+      }
     } catch (error) {
       setMessages((current) => current.map((message) =>
         message.id === responseID ? { ...message, text: `I couldn't complete that: ${errorMessage(error)}` } : message,
@@ -351,6 +450,7 @@ export function Editor() {
                   asset.id === id ? { ...asset, duration } : asset,
                 ))}
                 onAdd={(asset) => addAsset(asset)}
+                onDelete={(asset) => void deleteAsset(asset)}
               />
             </motion.div>
           )}
@@ -399,12 +499,18 @@ export function Editor() {
             >
               <ChatPanel
                 messages={messages}
+                chats={chats}
+                chatId={sessionId}
+                emptyHint={`${projects.find((item) => item.id === projectId)?.name ?? 'This project'} is ready. Upload media, add it to the timeline, or ask me to inspect and transform project files.`}
                 draft={draft}
                 pending={pending}
                 selected={selected}
                 onDraft={setDraft}
                 onSend={send}
                 onCollapse={() => setChatOpen(false)}
+                onNewChat={() => void newChat()}
+                onSelectChat={(id) => void openChat(projectId, id)}
+                onDeleteChat={(id) => void removeChat(id)}
               />
             </motion.div>
           ) : (
@@ -514,7 +620,70 @@ function toMediaAsset(item: ProjectMedia): MediaAsset {
     duration: item.kind === 'audio' ? 30 : item.kind === 'image' ? 5 : item.kind === 'subtitle' ? 4 : 8,
     thumb: item.kind === 'image' ? url : undefined,
     src: url,
+    path: item.path,
     mediaType,
+  }
+}
+
+function toUiMessages(messages: SavedChatMessage[]): ChatMessage[] {
+  return messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .filter((message) => message.content.trim())
+    .map((message) => ({
+      id: uid(),
+      role: message.role,
+      text: message.content,
+      time: '',
+    }))
+}
+
+function clipUsesAsset(clip: Clip, asset: MediaAsset) {
+  if (asset.path && clip.mediaPath === asset.path) return true
+  if (asset.src && clip.src && stripQuery(clip.src) === stripQuery(asset.src)) return true
+  return false
+}
+
+function syncClipMedia(clips: Clip[], assets: MediaAsset[]) {
+  const byPath = new Map(assets.filter((asset) => asset.path).map((asset) => [asset.path, asset]))
+  const bySrc = new Map(
+    assets.filter((asset) => asset.src).map((asset) => [stripQuery(asset.src as string), asset]),
+  )
+  return clips.map((clip) => {
+    const asset = (clip.mediaPath && byPath.get(clip.mediaPath))
+      || (clip.src ? bySrc.get(stripQuery(clip.src)) : undefined)
+    if (!asset) return clip
+    if (asset.src === clip.src && asset.thumb === clip.thumb) return clip
+    return {
+      ...clip,
+      src: asset.src,
+      thumb: asset.thumb ?? clip.thumb,
+      mediaPath: asset.path ?? clip.mediaPath,
+    }
+  })
+}
+
+function stripQuery(url: string) {
+  const index = url.indexOf('?')
+  return index === -1 ? url : url.slice(0, index)
+}
+
+function activeChatKey(projectID: string) {
+  return `parallax.activeChat.${projectID}`
+}
+
+function readActiveChat(projectID: string) {
+  try {
+    return localStorage.getItem(activeChatKey(projectID)) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeActiveChat(projectID: string, chatID: string) {
+  try {
+    localStorage.setItem(activeChatKey(projectID), chatID)
+  } catch {
+    // ignore quota / private mode
   }
 }
 
