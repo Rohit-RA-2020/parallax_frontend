@@ -41,6 +41,22 @@ export type AgentEvent = {
   data: Record<string, unknown>
 }
 
+export type LLMProfile = {
+  id: string
+  label?: string
+  base_url: string
+  model: string
+  api_key_set: boolean
+}
+
+export type LLMSettings = {
+  active_id: string
+  base_url: string
+  model: string
+  api_key_set: boolean
+  profiles: LLMProfile[]
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(API_BASE + path, init)
   if (!response.ok) {
@@ -189,8 +205,58 @@ export function putProjectTimeline(
   })
 }
 
+export function getSettings() {
+  return request<LLMSettings>('/v1/settings')
+}
+
+export function putSettings(body: { active_id: string }) {
+  return request<LLMSettings>('/v1/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function normalizeSettings(raw: Partial<LLMSettings> | null | undefined): LLMSettings {
+  const baseURL = raw?.base_url ?? ''
+  const model = raw?.model ?? ''
+  const apiKeySet = !!raw?.api_key_set
+  if (raw?.profiles?.length) {
+    return {
+      active_id: raw.active_id || raw.profiles[0].id,
+      base_url: baseURL || raw.profiles[0].base_url,
+      model: model || raw.profiles[0].model,
+      api_key_set: apiKeySet || raw.profiles[0].api_key_set,
+      profiles: raw.profiles,
+    }
+  }
+  const fallback: LLMProfile = {
+    id: raw?.active_id || 'default',
+    base_url: baseURL,
+    model,
+    api_key_set: apiKeySet,
+  }
+  return {
+    active_id: fallback.id,
+    base_url: fallback.base_url,
+    model: fallback.model,
+    api_key_set: fallback.api_key_set,
+    profiles: fallback.model || fallback.base_url ? [fallback] : [],
+  }
+}
+
+export function profileLabel(profile: Pick<LLMProfile, 'label' | 'model' | 'base_url'>) {
+  if (profile.label?.trim()) return profile.label.trim()
+  if (profile.model?.trim()) return profile.model.trim()
+  try {
+    return new URL(profile.base_url).host
+  } catch {
+    return 'Untitled model'
+  }
+}
+
 export async function streamAgent(
-  input: { projectID: string; sessionID?: string; message: string },
+  input: { projectID: string; sessionID?: string; profileID?: string; message: string },
   onEvent: (event: AgentEvent) => void,
 ) {
   const response = await fetch(API_BASE + '/v1/agent/chat', {
@@ -199,6 +265,7 @@ export async function streamAgent(
     body: JSON.stringify({
       project_id: input.projectID,
       session_id: input.sessionID || undefined,
+      profile_id: input.profileID || undefined,
       message: input.message,
     }),
   })

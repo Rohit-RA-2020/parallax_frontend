@@ -39,14 +39,18 @@ import {
   exportProjectMedia,
   getProjectChat,
   getProjectTimeline,
+  getSettings,
   listProjectChats,
   listProjectMedia,
   listProjects,
   mediaURL,
+  normalizeSettings,
   putProjectTimeline,
+  putSettings,
   streamAgent,
   uploadProjectMedia,
   type ChatRecord,
+  type LLMSettings,
   type ProjectMedia,
   type ProjectRecord,
   type ExportRequest,
@@ -93,6 +97,9 @@ export function Editor() {
   const [createOpen, setCreateOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [settings, setSettings] = useState<LLMSettings | null>(null)
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
   const [projectNameDraft, setProjectNameDraft] = useState('')
   const [creatingProject, setCreatingProject] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -301,6 +308,18 @@ export function Editor() {
       })
     return () => { live = false }
   }, [bootProject, loadChats])
+
+  useEffect(() => {
+    let live = true
+    getSettings()
+      .then((raw) => {
+        if (live) setSettings(normalizeSettings(raw))
+      })
+      .catch(() => {
+        if (live) setSettings(null)
+      })
+    return () => { live = false }
+  }, [])
 
   useEffect(() => {
     scheduleSave()
@@ -723,7 +742,12 @@ export function Editor() {
     setPending(true)
     let streamError = ''
     try {
-      await streamAgent({ projectID: projectId, sessionID: sessionId, message: value }, (event) => {
+      await streamAgent({
+        projectID: projectId,
+        sessionID: sessionId,
+        profileID: settingsRef.current?.active_id,
+        message: value,
+      }, (event) => {
         if (event.type === 'session' && typeof event.data.session_id === 'string') {
           setSessionId(event.data.session_id)
           writeActiveChat(projectId, event.data.session_id)
@@ -769,7 +793,16 @@ export function Editor() {
     }
   }
 
-
+  async function selectModel(id: string) {
+    const previous = settingsRef.current
+    setSettings((current) => current ? { ...current, active_id: id } : current)
+    try {
+      setSettings(normalizeSettings(await putSettings({ active_id: id })))
+    } catch (error) {
+      setSettings(previous)
+      setToast(errorMessage(error))
+    }
+  }
 
   return (
     <LayoutGroup>
@@ -900,6 +933,9 @@ export function Editor() {
                 onNewChat={() => void newChat()}
                 onSelectChat={(id) => void openChat(projectId, id)}
                 onDeleteChat={(id) => void removeChat(id)}
+                models={settings?.profiles ?? []}
+                modelId={settings?.active_id ?? ''}
+                onModel={(id) => void selectModel(id)}
               />
             </motion.div>
           ) : (

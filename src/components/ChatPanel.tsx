@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { ArrowUp, ChevronDown, Plus, PanelRightClose, Trash2 } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ChatMessage, Clip } from '../types'
-import type { ChatRecord } from '../lib/api'
-import { suggestions } from '../data/project'
+import type { ChatRecord, LLMProfile } from '../lib/api'
+import { profileLabel } from '../lib/api'
 import { formatRange } from '../lib/time'
 import { cn } from '../lib/cn'
 import { fade, softSpring } from '../lib/motion'
 import { MarkdownText } from './MarkdownText'
+import { Select, SelectContent, SelectItem, SelectTrigger } from './Select'
 
 type Props = {
   messages: ChatMessage[]
@@ -23,6 +24,9 @@ type Props = {
   onNewChat: () => void
   onSelectChat: (id: string) => void
   onDeleteChat: (id: string) => void
+  models?: LLMProfile[]
+  modelId?: string
+  onModel?: (id: string) => void
 }
 
 export function ChatPanel({
@@ -39,12 +43,16 @@ export function ChatPanel({
   onNewChat,
   onSelectChat,
   onDeleteChat,
+  models = [],
+  modelId = '',
+  onModel,
 }: Props) {
   const reduce = useReducedMotion()
   const end = useRef<HTMLDivElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const menu = useRef<HTMLDivElement>(null)
   const active = chats.find((chat) => chat.id === chatId)
+  const activeModel = models.find((model) => model.id === modelId) ?? models[0]
 
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth' })
@@ -228,21 +236,6 @@ export function ChatPanel({
       </div>
 
       <div className="border-t border-line p-3">
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {suggestions.map((s) => (
-            <motion.button
-              key={s}
-              type="button"
-              onClick={() => onSend(s)}
-              whileHover={reduce ? undefined : { y: -1 }}
-              whileTap={reduce ? undefined : { scale: 0.97 }}
-              transition={softSpring}
-              className="rounded-full border border-line px-2.5 py-1 text-[11px] text-mute transition-colors hover:border-line-strong hover:text-cream"
-            >
-              {s}
-            </motion.button>
-          ))}
-        </div>
         <form onSubmit={submit} className="relative">
           <textarea
             value={draft}
@@ -264,6 +257,26 @@ export function ChatPanel({
             <ArrowUp size={14} />
           </motion.button>
         </form>
+        {models.length > 0 && onModel && activeModel && (
+          <Select value={activeModel.id} onValueChange={onModel}>
+            <SelectTrigger className="mt-2" aria-label="Language model">
+              <span className="truncate">{profileLabel(activeModel)}</span>
+            </SelectTrigger>
+            <SelectContent>
+              {models.map((model) => {
+                const host = profileHost(model.base_url)
+                return (
+                  <SelectItem key={model.id} value={model.id} textValue={profileLabel(model)}>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate">{profileLabel(model)}</span>
+                      {host && <span className="truncate text-[10px] text-dim">{host}</span>}
+                    </span>
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
+        )}
       </div>
     </aside>
   )
@@ -315,4 +328,12 @@ export function ChatRail({ onOpen }: { onOpen: () => void }) {
       </span>
     </motion.button>
   )
+}
+
+function profileHost(url: string) {
+  try {
+    return new URL(url).host.replace(/^www\./, '')
+  } catch {
+    return ''
+  }
 }

@@ -121,13 +121,6 @@ export const initialMessages: ChatMessage[] = [
   },
 ]
 
-export const suggestions = [
-  'Inspect the project media',
-  'Create a short highlight',
-  'Strip audio from the video',
-  'Generate a thumbnail',
-]
-
 export function clipsAtTime(clips: Clip[], time: number, kind?: Clip['kind']) {
   const frame = 1 / PROJECT_FPS
   const hits = clips.filter((clip) => (
