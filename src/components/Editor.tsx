@@ -436,6 +436,24 @@ export function Editor() {
     }))
   }
 
+  function applyMediaFrame(assetId: string, width: number, height: number) {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) return
+    const w = Math.round(width)
+    const h = Math.round(height)
+    setAssets((current) => current.map((asset) =>
+      asset.id === assetId && (asset.width !== w || asset.height !== h)
+        ? { ...asset, width: w, height: h }
+        : asset,
+    ))
+    const asset = assetsRef.current.find((item) => item.id === assetId)
+    if (!asset) return
+    setClips((current) => current.map((clip) => {
+      if (!clipUsesAsset(clip, asset)) return clip
+      if (clip.width === w && clip.height === h) return clip
+      return { ...clip, width: w, height: h }
+    }))
+  }
+
   function addAsset(asset: MediaAsset, start = currentTime, track?: string) {
     const clip = clampClip(clipFromAsset(asset, snapTime(start, PROJECT_FPS), track), PROJECT_FPS)
     setClips((prev) => [...prev, clip])
@@ -679,6 +697,7 @@ export function Editor() {
                 loading={mediaLoading}
                 hasProject={!!projectId}
                 onDuration={(id, nextDuration) => applyMediaDuration(id, nextDuration)}
+                onFrame={(id, width, height) => applyMediaFrame(id, width, height)}
                 onAdd={(asset) => addAsset(asset)}
                 onDelete={(asset) => void deleteAsset(asset)}
               />
@@ -870,6 +889,8 @@ function toMediaAsset(item: ProjectMedia): MediaAsset {
     src: url,
     path: item.path,
     mediaType,
+    width: item.width && item.width > 0 ? item.width : undefined,
+    height: item.height && item.height > 0 ? item.height : undefined,
   }
 }
 
@@ -900,6 +921,8 @@ function syncClipMedia(clips: Clip[], assets: MediaAsset[]) {
       && next.sourceDuration === clip.sourceDuration
       && next.duration === clip.duration
       && next.sourceIn === clip.sourceIn
+      && next.width === clip.width
+      && next.height === clip.height
     ) {
       return clip
     }

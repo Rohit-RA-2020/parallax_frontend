@@ -134,6 +134,8 @@ export function hydrateClip(clip: Clip, assets: MediaAsset[]): Clip {
     thumb: asset.thumb ?? clip.thumb,
     mediaPath: asset.path ?? clip.mediaPath,
     mediaType: asset.mediaType ?? clip.mediaType,
+    width: asset.width || clip.width,
+    height: asset.height || clip.height,
   }
   if (asset.duration > 0) {
     next = applySourceDuration(next, asset.duration)

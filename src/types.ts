@@ -18,6 +18,8 @@ export type Clip = {
   src?: string
   mediaPath?: string
   mediaType?: 'video' | 'audio' | 'image'
+  width?: number
+  height?: number
   color: string
   waveSeed?: number
 }
@@ -39,6 +41,8 @@ export type MediaAsset = {
   src?: string
   path?: string
   mediaType?: 'video' | 'audio' | 'image'
+  width?: number
+  height?: number
 }
 
 export type ChatRole = 'user' | 'assistant'

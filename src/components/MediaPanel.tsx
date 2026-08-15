@@ -26,11 +26,12 @@ type Props = {
   loading: boolean
   hasProject: boolean
   onDuration: (id: string, duration: number) => void
+  onFrame?: (id: string, width: number, height: number) => void
   onAdd: (asset: MediaAsset) => void
   onDelete?: (asset: MediaAsset) => void
 }
 
-export function MediaPanel({ tool, assets, loading, hasProject, onDuration, onAdd, onDelete }: Props) {
+export function MediaPanel({ tool, assets, loading, hasProject, onDuration, onFrame, onAdd, onDelete }: Props) {
   const reduce = useReducedMotion()
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<MediaKind | 'all'>('all')
@@ -151,17 +152,25 @@ export function MediaPanel({ tool, assets, loading, hasProject, onDuration, onAd
                           muted
                           preload="metadata"
                           onLoadedMetadata={(event) => {
-                            const duration = event.currentTarget.duration
+                            const el = event.currentTarget
+                            const duration = el.duration
                             if (Number.isFinite(duration) && duration > 0) onDuration(asset.id, duration)
+                            if (el.videoWidth > 0 && el.videoHeight > 0) onFrame?.(asset.id, el.videoWidth, el.videoHeight)
                           }}
-                          className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                          className="size-full object-contain transition-transform duration-500 group-hover:scale-[1.04]"
                         />
                       ) : asset.thumb ? (
                         <img
                           src={asset.thumb}
                           alt=""
                           draggable={false}
-                          className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                          onLoad={(event) => {
+                            const el = event.currentTarget
+                            if (el.naturalWidth > 0 && el.naturalHeight > 0) {
+                              onFrame?.(asset.id, el.naturalWidth, el.naturalHeight)
+                            }
+                          }}
+                          className="size-full object-contain transition-transform duration-500 group-hover:scale-[1.04]"
                         />
                       ) : (
                         <div className="flex size-full items-center justify-center text-dim">

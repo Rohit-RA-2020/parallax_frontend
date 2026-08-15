@@ -19,6 +19,8 @@ export type ProjectMedia = {
   content_url: string
   bytes: number
   duration?: number
+  width?: number
+  height?: number
   modified_at: string
 }
 

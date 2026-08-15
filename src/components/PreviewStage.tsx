@@ -8,10 +8,11 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { useEffect, useRef, type PointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import type { Clip, Grade } from '../types'
 import { PROJECT_FPS } from '../data/project'
+import { DEFAULT_FRAME, fitContain, resolutionLabel } from '../lib/frame'
 import { clipSourceTime } from '../lib/timeline'
 import { formatRange, formatTimecode } from '../lib/time'
 import { fadeSlow, softSpring } from '../lib/motion'
@@ -57,6 +58,9 @@ export function PreviewStage({
   ].join(' ')
 
   const progress = duration > 0 ? currentTime / duration : 0
+  const wellRef = useRef<HTMLDivElement>(null)
+  const [well, setWell] = useState({ width: 0, height: 0 })
+  const [decoded, setDecoded] = useState({ width: 0, height: 0 })
   const px = useMotionValue(0)
   const py = useMotionValue(0)
   const spring = { stiffness: 70, damping: 22, mass: 0.8 }
@@ -64,6 +68,40 @@ export function PreviewStage({
   const rotateY = useSpring(useTransform(px, [-0.5, 0.5], [-1.6, 1.6]), spring)
   const shiftX = useSpring(useTransform(px, [-0.5, 0.5], [-5, 5]), spring)
   const shiftY = useSpring(useTransform(py, [-0.5, 0.5], [-3, 3]), spring)
+
+  const frame = useMemo(() => {
+    if (decoded.width > 0 && decoded.height > 0) return decoded
+    if (clip?.width && clip.height) return { width: clip.width, height: clip.height }
+    return DEFAULT_FRAME
+  }, [clip?.width, clip?.height, decoded])
+
+  const fitted = useMemo(
+    () => fitContain(well.width, well.height, frame.width, frame.height),
+    [well, frame],
+  )
+
+  const frameLabel = resolutionLabel(frame.width, frame.height)
+
+  useLayoutEffect(() => {
+    const el = wellRef.current
+    if (!el) return
+    const measure = () => {
+      const next = { width: el.clientWidth, height: el.clientHeight }
+      setWell((cur) => (cur.width === next.width && cur.height === next.height ? cur : next))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    setDecoded(
+      clip?.width && clip.height
+        ? { width: clip.width, height: clip.height }
+        : { width: 0, height: 0 },
+    )
+  }, [clip?.id, clip?.src, clip?.width, clip?.height])
 
   function onWellMove(e: PointerEvent<HTMLDivElement>) {
     if (reduce) return
@@ -80,10 +118,16 @@ export function PreviewStage({
   return (
     <section className="chrome flex min-h-0 min-w-0 flex-1 flex-col bg-void">
       <div className="flex h-10 shrink-0 items-center justify-between px-4">
-        <div className="flex items-center gap-2 text-[11px] text-mute">
-          <span className="text-cream">{clip?.name ?? 'Gap'}</span>
+        <div className="flex min-w-0 items-center gap-2 text-[11px] text-mute">
+          <span className="truncate text-cream">{clip?.name ?? 'Gap'}</span>
           <span className="text-dim">·</span>
           <span className="font-mono text-dim">Program</span>
+          {clip && frameLabel && (
+            <>
+              <span className="text-dim">·</span>
+              <span className="font-mono text-dim">{frameLabel}</span>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-0.5">
           <IconButton label="Safe area" active={safeArea} onClick={onToggleSafe}>
@@ -96,6 +140,7 @@ export function PreviewStage({
       </div>
 
       <div
+        ref={wellRef}
         className="relative flex min-h-0 flex-1 items-center justify-center px-6 pb-2"
         onPointerMove={onWellMove}
         onPointerLeave={onWellLeave}
@@ -103,18 +148,25 @@ export function PreviewStage({
       >
         <Atmosphere playing={isPlaying} />
         <motion.div
-          className="relative z-10 aspect-video h-full max-h-full w-auto max-w-full overflow-hidden rounded-sm bg-black shadow-[0_0_0_1px_var(--preview-ring),0_30px_80px_var(--preview-glow)]"
-          style={
-            reduce
-              ? undefined
+          className="relative z-10 overflow-hidden rounded-sm bg-black shadow-[0_0_0_1px_var(--preview-ring),0_30px_80px_var(--preview-glow)]"
+          animate={fitted.width > 0 ? { width: fitted.width, height: fitted.height } : undefined}
+          transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 280, damping: 32, mass: 0.8 }}
+          style={{
+            width: fitted.width || 'auto',
+            height: fitted.height || '100%',
+            maxWidth: '100%',
+            maxHeight: '100%',
+            aspectRatio: fitted.width ? undefined : `${frame.width} / ${frame.height}`,
+            ...(reduce
+              ? {}
               : {
                   rotateX,
                   rotateY,
                   x: shiftX,
                   y: shiftY,
                   transformPerspective: 900,
-                }
-          }
+                }),
+          }}
         >
           <AnimatePresence initial={false} mode="wait">
             {clip?.mediaType === 'video' && clip.src ? (
@@ -128,6 +180,7 @@ export function PreviewStage({
                 muted={muted}
                 filter={filter}
                 reduce={!!reduce}
+                onFrame={(width, height) => setDecoded({ width, height })}
               />
             ) : clip?.thumb ? (
               <motion.img
@@ -141,7 +194,13 @@ export function PreviewStage({
                   opacity: fadeSlow,
                   scale: { duration: isPlaying ? 10 : 1.4, ease: 'linear' },
                 }}
-                className="preview-plate absolute inset-0 size-full object-cover"
+                onLoad={(event) => {
+                  const el = event.currentTarget
+                  if (el.naturalWidth > 0 && el.naturalHeight > 0) {
+                    setDecoded({ width: el.naturalWidth, height: el.naturalHeight })
+                  }
+                }}
+                className="preview-plate absolute inset-0 size-full object-contain"
                 style={{ filter, transformOrigin: '60% 40%' }}
               />
             ) : (
@@ -256,7 +315,7 @@ export function PreviewStage({
         </IconButton>
       </div>
 
-      <ClipInspector clip={clip} />
+      <ClipInspector clip={clip} frameLabel={frameLabel} />
     </section>
   )
 }
@@ -270,6 +329,7 @@ function PreviewVideo({
   muted,
   filter,
   reduce,
+  onFrame,
 }: {
   src: string
   start: number
@@ -279,12 +339,15 @@ function PreviewVideo({
   muted: boolean
   filter: string
   reduce: boolean
+  onFrame?: (width: number, height: number) => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const currentTimeRef = useRef(currentTime)
   const isPlayingRef = useRef(isPlaying)
+  const onFrameRef = useRef(onFrame)
   currentTimeRef.current = currentTime
   isPlayingRef.current = isPlaying
+  onFrameRef.current = onFrame
 
   useEffect(() => {
     const video = videoRef.current
@@ -301,8 +364,14 @@ function PreviewVideo({
       }
     }
 
+    const reportFrame = () => {
+      if (cancelled || video.videoWidth < 1 || video.videoHeight < 1) return
+      onFrameRef.current?.(video.videoWidth, video.videoHeight)
+    }
+
     const onReady = () => {
       if (cancelled) return
+      reportFrame()
       seekToClock()
       if (isPlayingRef.current) {
         void video.play().catch(() => undefined)
@@ -317,12 +386,16 @@ function PreviewVideo({
     }
 
     video.addEventListener('loadedmetadata', onReady)
+    video.addEventListener('loadeddata', reportFrame)
+    video.addEventListener('resize', reportFrame)
     video.addEventListener('canplay', onCanPlay)
     video.load()
 
     return () => {
       cancelled = true
       video.removeEventListener('loadedmetadata', onReady)
+      video.removeEventListener('loadeddata', reportFrame)
+      video.removeEventListener('resize', reportFrame)
       video.removeEventListener('canplay', onCanPlay)
       video.pause()
     }
@@ -358,14 +431,14 @@ function PreviewVideo({
         muted={muted}
         playsInline
         preload="auto"
-        className="size-full object-cover"
+        className="size-full object-contain"
         style={{ filter }}
       />
     </motion.div>
   )
 }
 
-function ClipInspector({ clip }: { clip: Clip | undefined }) {
+function ClipInspector({ clip, frameLabel }: { clip: Clip | undefined; frameLabel: string }) {
   return (
     <div className="chrome flex h-9 shrink-0 items-center gap-5 border-t border-line px-4 text-[11px]">
       <span className="w-28 truncate text-mute">{clip?.name ?? 'No selection under playhead'}</span>
@@ -381,6 +454,11 @@ function ClipInspector({ clip }: { clip: Clip | undefined }) {
           <span className="text-dim">
             Dur <span className="font-mono text-mute">{formatTimecode(clip.duration)}</span>
           </span>
+          {frameLabel && (
+            <span className="text-dim">
+              Frame <span className="font-mono text-mute">{frameLabel}</span>
+            </span>
+          )}
         </>
       )}
     </div>
