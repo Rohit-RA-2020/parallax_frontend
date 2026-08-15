@@ -16,6 +16,10 @@ type Props = {
   onProject: (id: string) => void
   onCreateProject: () => void
   onUpload: () => void
+  canUndo?: boolean
+  canRedo?: boolean
+  onUndo?: () => void
+  onRedo?: () => void
 }
 
 export function TopBar({
@@ -28,6 +32,10 @@ export function TopBar({
   onProject,
   onCreateProject,
   onUpload,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }: Props) {
   const reduce = useReducedMotion()
   return (
@@ -58,10 +66,10 @@ export function TopBar({
       </div>
 
       <div className="flex items-center gap-1">
-        <IconButton label="Undo" disabled>
+        <IconButton label="Undo" disabled={!canUndo} onClick={onUndo}>
           <Undo2 size={15} />
         </IconButton>
-        <IconButton label="Redo" disabled>
+        <IconButton label="Redo" disabled={!canRedo} onClick={onRedo}>
           <Redo2 size={15} />
         </IconButton>
       </div>

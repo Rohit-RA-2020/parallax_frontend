@@ -39,6 +39,11 @@ import {
   exportProjectMedia,
   getProjectChat,
   getProjectTimeline,
+  getProjectHistory,
+  undoProject,
+  redoProject,
+  restoreProjectRevision,
+  createProjectCheckpoint,
   getSettings,
   listProjectChats,
   listProjectMedia,
@@ -53,8 +58,10 @@ import {
   type LLMSettings,
   type ProjectMedia,
   type ProjectRecord,
+  type ProjectHistory,
   type ExportRequest,
   type SavedChatMessage,
+  type TimelineTransition,
 } from '../lib/api'
 import { TopBar } from './TopBar'
 import { ToolRail } from './ToolRail'
@@ -63,6 +70,7 @@ import { PreviewStage } from './PreviewStage'
 import { Timeline } from './Timeline'
 import { ChatPanel, ChatRail } from './ChatPanel'
 import { ExportDialog } from './ExportDialog'
+import { HistoryPanel } from './HistoryPanel'
 import { fade, panelTransition } from '../lib/motion'
 
 export function Editor() {
@@ -102,6 +110,8 @@ export function Editor() {
   settingsRef.current = settings
   const [projectNameDraft, setProjectNameDraft] = useState('')
   const [creatingProject, setCreatingProject] = useState(false)
+  const [history, setHistory] = useState<ProjectHistory | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const duration = useMemo(() => sequenceDuration(clips, assets), [clips, assets])
@@ -120,6 +130,7 @@ export function Editor() {
   const currentTimeRef = useRef(currentTime)
   currentTimeRef.current = currentTime
   const revisionRef = useRef(0)
+  const timelineMetaRef = useRef<{ canvas: { width: number; height: number }; transitions: TimelineTransition[] }>({ canvas: { width: 1920, height: 1080 }, transitions: [] })
   const lastSavedRef = useRef('')
   const timelineReadyRef = useRef(false)
   const saveTimerRef = useRef(0)
@@ -127,6 +138,8 @@ export function Editor() {
   const savingRef = useRef(false)
   const dirtyRef = useRef(false)
   const editModeRef = useRef(editMode)
+  const undoLastRef = useRef<() => Promise<void>>(async () => undefined)
+  const redoLastRef = useRef<(target?: number) => Promise<void>>(async () => undefined)
   editModeRef.current = editMode
   const editSessionRef = useRef<{
     type: 'move' | 'trim'
@@ -151,10 +164,24 @@ export function Editor() {
       })
       setAssets(next)
       setClips((current) => syncClipMedia(current, next))
+      return next
     } catch (error) {
       setToast(errorMessage(error))
+      return undefined
     } finally {
       setMediaLoading(false)
+    }
+  }, [])
+
+  const refreshHistory = useCallback(async (id: string) => {
+    setHistoryLoading(true)
+    try {
+      const next = await getProjectHistory(id)
+      if (projectIdRef.current === id) setHistory(next)
+    } catch (error) {
+      if (projectIdRef.current === id) setToast(errorMessage(error))
+    } finally {
+      if (projectIdRef.current === id) setHistoryLoading(false)
     }
   }, [])
 
@@ -184,6 +211,8 @@ export function Editor() {
       playhead: currentTimeRef.current,
       selectedId: selectedIdRef.current,
       pxPerSecond: pxPerSecondRef.current,
+      canvas: timelineMetaRef.current.canvas,
+      transitions: timelineMetaRef.current.transitions,
     })
     const fingerprint = timelineFingerprint(doc)
     if (fingerprint === lastSavedRef.current) {
@@ -195,11 +224,12 @@ export function Editor() {
     savingRef.current = true
     setSaveStatus('saving')
     try {
-      const saved = await putProjectTimeline(id, doc, opts)
+      const saved = await putProjectTimeline(id, doc, { ...opts, expectedRevision: revisionRef.current })
       if (gen !== saveGenRef.current || projectIdRef.current !== id) return
       revisionRef.current = saved.revision
       lastSavedRef.current = fingerprint
       setSaveStatus('saved')
+      void refreshHistory(id)
     } catch (error) {
       if (gen !== saveGenRef.current || projectIdRef.current !== id) return
       dirtyRef.current = true
@@ -208,7 +238,7 @@ export function Editor() {
     } finally {
       if (gen === saveGenRef.current) savingRef.current = false
     }
-  }, [])
+  }, [refreshHistory])
 
   const scheduleSave = useCallback(() => {
     if (!timelineReadyRef.current || !projectIdRef.current) return
@@ -240,6 +270,7 @@ export function Editor() {
     setSelectedId(selected)
     setCurrentTime(playhead)
     setPxPerSecond(zoom)
+    timelineMetaRef.current = { canvas: timeline.canvas ?? { width: 1920, height: 1080 }, transitions: timeline.transitions ?? [] }
     revisionRef.current = timeline.revision ?? 0
     lastSavedRef.current = timelineFingerprint(buildTimelineDocument({
       clips: nextClips,
@@ -248,6 +279,8 @@ export function Editor() {
       playhead,
       selectedId: selected,
       pxPerSecond: zoom,
+      canvas: timelineMetaRef.current.canvas,
+      transitions: timelineMetaRef.current.transitions,
     }))
     timelineReadyRef.current = true
     setSaveStatus(nextClips.length ? 'saved' : 'idle')
@@ -278,6 +311,7 @@ export function Editor() {
       })
       setAssets(next)
       await loadTimeline(id, next)
+      await refreshHistory(id)
     } catch (error) {
       if (projectIdRef.current === id) {
         setToast(errorMessage(error))
@@ -286,7 +320,7 @@ export function Editor() {
     } finally {
       if (projectIdRef.current === id) setMediaLoading(false)
     }
-  }, [loadTimeline])
+  }, [loadTimeline, refreshHistory])
 
   useEffect(() => {
     let live = true
@@ -450,6 +484,12 @@ export function Editor() {
         e.preventDefault()
         setIsPlaying((p) => !p)
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) void redoLastRef.current()
+        else void undoLastRef.current()
+        return
+      }
       if (e.key === 'j' || e.key === 'J') seek(currentTime - 2)
       if (e.key === 'l' || e.key === 'L') seek(currentTime + 2)
       if (e.key === 'ArrowLeft') seek(currentTime - (e.shiftKey ? 1 : 1 / PROJECT_FPS))
@@ -490,6 +530,65 @@ export function Editor() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [currentTime, seek, removeClip, splitAtPlayhead, unlinkSelected])
+
+  const adoptTimeline = useCallback((timeline: Awaited<ReturnType<typeof getProjectTimeline>>, availableAssets = assetsRef.current) => {
+    const nextClips = clipsFromDocument({ ...emptyTimelineDocument(), ...timeline, clips: timeline.clips ?? [] }, availableAssets)
+    setClips(nextClips)
+    setSelectedId(null)
+    revisionRef.current = timeline.revision
+    timelineMetaRef.current = { canvas: timeline.canvas ?? { width: 1920, height: 1080 }, transitions: timeline.transitions ?? [] }
+    lastSavedRef.current = timelineFingerprint(buildTimelineDocument({ clips: nextClips, fps: timeline.fps, revision: timeline.revision, playhead: currentTimeRef.current, selectedId: null, pxPerSecond: pxPerSecondRef.current, canvas: timelineMetaRef.current.canvas, transitions: timelineMetaRef.current.transitions }))
+    dirtyRef.current = false
+    setSaveStatus('saved')
+  }, [])
+
+  async function undoLast() {
+    if (!projectIdRef.current || !history?.can_undo || pending) return
+    try {
+      await flushTimeline()
+      const timeline = await undoProject(projectIdRef.current, revisionRef.current)
+      const restoredAssets = await refreshMedia(projectIdRef.current)
+      adoptTimeline(timeline, restoredAssets)
+      await refreshHistory(projectIdRef.current)
+      setToast('Undid last change')
+    } catch (error) { setToast(errorMessage(error)) }
+  }
+
+  async function redoLast(target = -1) {
+    if (!projectIdRef.current || !history?.redo_candidates?.length || pending) return
+    try {
+      await flushTimeline()
+      const timeline = await redoProject(projectIdRef.current, revisionRef.current, target)
+      const restoredAssets = await refreshMedia(projectIdRef.current)
+      adoptTimeline(timeline, restoredAssets)
+      await refreshHistory(projectIdRef.current)
+      setToast('Redid change')
+    } catch (error) { setToast(errorMessage(error)) }
+  }
+
+  undoLastRef.current = undoLast
+  redoLastRef.current = redoLast
+
+  async function restoreRevision(target: number) {
+    if (!projectIdRef.current || target === revisionRef.current || pending) return
+    try {
+      await flushTimeline()
+      const timeline = await restoreProjectRevision(projectIdRef.current, revisionRef.current, target)
+      const restoredAssets = await refreshMedia(projectIdRef.current)
+      adoptTimeline(timeline, restoredAssets)
+      await refreshHistory(projectIdRef.current)
+      setToast(`Restored revision ${target}`)
+    } catch (error) { setToast(errorMessage(error)) }
+  }
+
+  async function checkpoint() {
+    const name = window.prompt('Checkpoint name')?.trim()
+    if (!name || !projectIdRef.current) return
+    try {
+      setHistory(await createProjectCheckpoint(projectIdRef.current, name, revisionRef.current))
+      setToast(`Checkpoint “${name}” created`)
+    } catch (error) { setToast(errorMessage(error)) }
+  }
 
   useEffect(() => {
     if (!toast) return
@@ -544,14 +643,17 @@ export function Editor() {
     if (!projectId || !asset.path) return
     try {
       await deleteProjectMedia(projectId, asset.path)
-      setAssets((current) => current.filter((item) => item.id !== asset.id))
+      const nextAssets = assetsRef.current.filter((item) => item.id !== asset.id)
+      setAssets(nextAssets)
       setClips((current) => current.filter((clip) => !clipUsesAsset(clip, asset)))
       setSelectedId((cur) => {
         const selected = clipsRef.current.find((clip) => clip.id === cur)
         return selected && clipUsesAsset(selected, asset) ? null : cur
       })
+      adoptTimeline(await getProjectTimeline(projectId), nextAssets)
       const latest = await listProjects()
       setProjects(latest)
+      await refreshHistory(projectId)
       setToast(`Deleted ${asset.name}`)
     } catch (error) {
       setToast(errorMessage(error))
@@ -712,7 +814,9 @@ export function Editor() {
     setUploading(true)
     try {
       await uploadProjectMedia(projectId, files)
-      await refreshMedia(projectId)
+      const nextAssets = await refreshMedia(projectId)
+      adoptTimeline(await getProjectTimeline(projectId), nextAssets)
+      await refreshHistory(projectId)
       const latest = await listProjects()
       setProjects(latest)
       setToast(`${files.length} ${files.length === 1 ? 'file' : 'files'} uploaded`)
@@ -729,6 +833,11 @@ export function Editor() {
     if (!value || pending) return
     if (!projectId) {
       setToast('Create a project before using Director')
+      return
+    }
+    await flushTimeline()
+    if (dirtyRef.current) {
+      setToast('Save the timeline before running Director')
       return
     }
     const userMsg: ChatMessage = { id: uid(), role: 'user', text: value, time: clock() }
@@ -777,7 +886,9 @@ export function Editor() {
           ? { ...message, text: 'The operation completed without a written summary.' }
           : message,
       ))
-      await refreshMedia(projectId)
+      const nextAssets = await refreshMedia(projectId)
+      await loadTimeline(projectId, nextAssets ?? assetsRef.current)
+      await refreshHistory(projectId)
       try {
         const items = await listProjectChats(projectId)
         setChats(items)
@@ -815,6 +926,10 @@ export function Editor() {
         onProject={(id) => openProject(id)}
         onCreateProject={() => setCreateOpen(true)}
         onUpload={() => fileInput.current?.click()}
+        canUndo={!!history?.can_undo && !pending}
+        canRedo={!!history?.redo_candidates?.length && !pending}
+        onUndo={() => void undoLast()}
+        onRedo={() => void redoLast()}
         exporting={exporting}
         onExport={() => {
           if (!projectId) {
@@ -845,16 +960,20 @@ export function Editor() {
               transition={reduce ? { duration: 0 } : panelTransition}
               className="h-full shrink-0 overflow-hidden"
             >
-              <MediaPanel
-                tool={tool}
-                assets={assets}
-                loading={mediaLoading}
-                hasProject={!!projectId}
-                onDuration={(id, nextDuration) => applyMediaDuration(id, nextDuration)}
-                onFrame={(id, width, height) => applyMediaFrame(id, width, height)}
-                onAdd={(asset) => addAsset(asset)}
-                onDelete={(asset) => void deleteAsset(asset)}
-              />
+              {tool === 'history' ? (
+                <HistoryPanel history={history} loading={historyLoading} onRestore={(revision) => void restoreRevision(revision)} onCheckpoint={() => void checkpoint()} />
+              ) : (
+                <MediaPanel
+                  tool={tool}
+                  assets={assets}
+                  loading={mediaLoading}
+                  hasProject={!!projectId}
+                  onDuration={(id, nextDuration) => applyMediaDuration(id, nextDuration)}
+                  onFrame={(id, width, height) => applyMediaFrame(id, width, height)}
+                  onAdd={(asset) => addAsset(asset)}
+                  onDelete={(asset) => void deleteAsset(asset)}
+                />
+              )}
             </motion.div>
           )}
         </AnimatePresence>

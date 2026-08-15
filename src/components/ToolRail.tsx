@@ -1,4 +1,4 @@
-import { Clapperboard, Folder, Music2, Sparkles, Type } from 'lucide-react'
+import { Clapperboard, Folder, History, Music2, Sparkles, Type } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { ToolId } from '../types'
 import { cn } from '../lib/cn'
@@ -10,6 +10,7 @@ const tools: { id: ToolId; label: string; icon: typeof Folder }[] = [
   { id: 'audio', label: 'Audio', icon: Music2 },
   { id: 'effects', label: 'FX', icon: Sparkles },
   { id: 'transitions', label: 'Cuts', icon: Clapperboard },
+  { id: 'history', label: 'History', icon: History },
 ]
 
 type Props = {

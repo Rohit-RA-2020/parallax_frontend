@@ -1,7 +1,7 @@
-import type { Clip, MediaAsset, TrackKind } from '../types'
+import type { Clip, MediaAsset, TimelineColor, TimelineKeyframe, TimelineTransform, TrackKind } from '../types'
 import { PROJECT_FPS } from '../data/project'
 
-export const TIMELINE_SCHEMA = 1
+export const TIMELINE_SCHEMA = 2
 export const MIN_CLIP_FRAMES = 1
 
 export type TimelineClipRecord = {
@@ -18,7 +18,17 @@ export type TimelineClipRecord = {
   color: string
   wave_seed?: number
   link_id?: string
+  enabled?: boolean
+  transform?: SnakeTransform
+  playback?: { rate?: number; preserve_pitch?: boolean }
+  audio?: { volume_db?: number; muted?: boolean; pan?: number }
+  grade?: TimelineColor
+  title?: { text: string; font_family?: string; font_size?: number; font_weight?: number; align?: string; fill?: string; stroke?: string; stroke_width?: number; background?: string }
+  keyframes?: TimelineKeyframe[]
 }
+
+type SnakeTransform = { x?: number; y?: number; anchor_x?: number; anchor_y?: number; scale_x?: number; scale_y?: number; rotation?: number; opacity?: number; crop_top?: number; crop_right?: number; crop_bottom?: number; crop_left?: number }
+export type TimelineTransition = { id: string; type: 'crossfade' | 'dip_black' | 'dip_white'; from_item_id: string; to_item_id: string; duration_frames: number }
 
 export type TimelineDocument = {
   schema: number
@@ -28,7 +38,9 @@ export type TimelineDocument = {
   selected_id?: string
   px_per_second?: number
   updated_at?: string
+  canvas?: { width: number; height: number }
   clips: TimelineClipRecord[]
+  transitions?: TimelineTransition[]
 }
 
 const COLOR_FOR: Record<TrackKind, string> = {
@@ -102,6 +114,8 @@ export function buildTimelineDocument(input: {
   playhead?: number
   selectedId?: string | null
   pxPerSecond?: number
+  canvas?: { width: number; height: number }
+  transitions?: TimelineTransition[]
 }): TimelineDocument {
   const fps = input.fps && input.fps > 0 ? input.fps : PROJECT_FPS
   const clips = input.clips
@@ -115,6 +129,8 @@ export function buildTimelineDocument(input: {
     selected_id: input.selectedId || undefined,
     px_per_second: input.pxPerSecond,
     clips,
+    canvas: input.canvas ?? { width: 1920, height: 1080 },
+    transitions: input.transitions ?? [],
   }
 }
 
@@ -147,10 +163,9 @@ export function hydrateClip(clip: Clip, assets: MediaAsset[]): Clip {
 export function timelineFingerprint(doc: TimelineDocument): string {
   return JSON.stringify({
     fps: doc.fps,
-    playhead_frame: doc.playhead_frame,
-    selected_id: doc.selected_id ?? '',
-    px_per_second: doc.px_per_second ?? 0,
+    canvas: doc.canvas,
     clips: doc.clips,
+    transitions: doc.transitions ?? [],
   })
 }
 
@@ -160,7 +175,9 @@ export function emptyTimelineDocument(): TimelineDocument {
     fps: PROJECT_FPS,
     revision: 0,
     playhead_frame: 0,
+    canvas: { width: 1920, height: 1080 },
     clips: [],
+    transitions: [],
   }
 }
 
@@ -182,6 +199,13 @@ function clipToRecord(clip: Clip, fps: number): TimelineClipRecord {
   if (clip.mediaType) record.media_type = clip.mediaType
   if (clip.waveSeed) record.wave_seed = clip.waveSeed
   if (clip.linkId) record.link_id = clip.linkId
+  if (clip.enabled != null) record.enabled = clip.enabled
+  if (clip.transform) record.transform = transformToRecord(clip.transform)
+  if (clip.playback) record.playback = { rate: clip.playback.rate, preserve_pitch: clip.playback.preservePitch }
+  if (clip.audio) record.audio = { volume_db: clip.audio.volumeDb, muted: clip.audio.muted, pan: clip.audio.pan }
+  if (clip.grade) record.grade = clip.grade
+  if (clip.title) record.title = { text: clip.title.text, font_family: clip.title.fontFamily, font_size: clip.title.fontSize, font_weight: clip.title.fontWeight, align: clip.title.align, fill: clip.title.fill, stroke: clip.title.stroke, stroke_width: clip.title.strokeWidth, background: clip.title.background }
+  if (clip.keyframes?.length) record.keyframes = clip.keyframes
   return record
 }
 
@@ -202,7 +226,21 @@ function clipFromRecord(record: TimelineClipRecord, fps: number): Clip {
     color: record.color || COLOR_FOR[record.kind],
     waveSeed: record.wave_seed,
     linkId: record.link_id,
+    enabled: record.enabled,
+    transform: transformFromRecord(record.transform),
+    playback: record.playback ? { rate: record.playback.rate, preservePitch: record.playback.preserve_pitch } : undefined,
+    audio: record.audio ? { volumeDb: record.audio.volume_db, muted: record.audio.muted, pan: record.audio.pan } : undefined,
+    grade: record.grade,
+    title: record.title ? { text: record.title.text, fontFamily: record.title.font_family, fontSize: record.title.font_size, fontWeight: record.title.font_weight, align: record.title.align, fill: record.title.fill, stroke: record.title.stroke, strokeWidth: record.title.stroke_width, background: record.title.background } : undefined,
+    keyframes: record.keyframes,
   }
+}
+
+function transformToRecord(value: TimelineTransform): SnakeTransform {
+  return { x:value.x, y:value.y, anchor_x:value.anchorX, anchor_y:value.anchorY, scale_x:value.scaleX, scale_y:value.scaleY, rotation:value.rotation, opacity:value.opacity, crop_top:value.cropTop, crop_right:value.cropRight, crop_bottom:value.cropBottom, crop_left:value.cropLeft }
+}
+function transformFromRecord(value?: SnakeTransform): TimelineTransform | undefined {
+  return value ? { x:value.x, y:value.y, anchorX:value.anchor_x, anchorY:value.anchor_y, scaleX:value.scale_x, scaleY:value.scale_y, rotation:value.rotation, opacity:value.opacity, cropTop:value.crop_top, cropRight:value.crop_right, cropBottom:value.crop_bottom, cropLeft:value.crop_left } : undefined
 }
 
 export function findClipAsset(clip: Pick<Clip, 'mediaPath' | 'src'>, assets: MediaAsset[]) {

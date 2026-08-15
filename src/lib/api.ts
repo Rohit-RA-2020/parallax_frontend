@@ -186,7 +186,7 @@ export async function deleteProjectChat(projectID: string, chatID: string) {
   }
 }
 
-export type { TimelineDocument, TimelineClipRecord } from './timeline'
+export type { TimelineDocument, TimelineClipRecord, TimelineTransition } from './timeline'
 
 export function getProjectTimeline(projectID: string) {
   return request<TimelineDocument>(`/v1/projects/${projectID}/timeline`)
@@ -195,14 +195,47 @@ export function getProjectTimeline(projectID: string) {
 export function putProjectTimeline(
   projectID: string,
   body: TimelineDocument,
-  opts?: { keepalive?: boolean },
+  opts?: { keepalive?: boolean; expectedRevision?: number; summary?: string },
 ) {
-  return request<TimelineDocument>(`/v1/projects/${projectID}/timeline`, {
+  const query = new URLSearchParams()
+  if (opts?.expectedRevision != null) query.set('expected_revision', String(opts.expectedRevision))
+  if (opts?.summary) query.set('summary', opts.summary)
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return request<TimelineDocument>(`/v1/projects/${projectID}/timeline${suffix}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     keepalive: opts?.keepalive,
   })
+}
+
+export type ProjectRevision = { id:number; parent_id?:number; actor:'human'|'agent'|'system'; summary:string; chat_id?:string; created_at:string; children?:number[]; checkpoints?:string[] }
+export type ProjectHistory = { head:number; can_undo:boolean; redo_candidates:number[]; revisions:ProjectRevision[] }
+
+export async function getProjectHistory(projectID: string) {
+  return normalizeProjectHistory(await request<Partial<ProjectHistory>>(`/v1/projects/${projectID}/history`))
+}
+export function undoProject(projectID: string, expectedRevision: number) {
+  return request<TimelineDocument>(`/v1/projects/${projectID}/history/undo`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_revision:expectedRevision, target_revision:-1}) })
+}
+export function redoProject(projectID: string, expectedRevision: number, targetRevision = -1) {
+  return request<TimelineDocument>(`/v1/projects/${projectID}/history/redo`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_revision:expectedRevision, target_revision:targetRevision}) })
+}
+export function restoreProjectRevision(projectID: string, expectedRevision: number, targetRevision: number) {
+  return request<TimelineDocument>(`/v1/projects/${projectID}/history/restore`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({expected_revision:expectedRevision, target_revision:targetRevision}) })
+}
+export async function createProjectCheckpoint(projectID: string, name: string, revision: number) {
+  const result = await request<Partial<ProjectHistory>>(`/v1/projects/${projectID}/checkpoints`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name, revision}) })
+  return normalizeProjectHistory(result)
+}
+
+function normalizeProjectHistory(raw: Partial<ProjectHistory> | null | undefined): ProjectHistory {
+  return {
+    head: Number.isInteger(raw?.head) ? raw?.head ?? 0 : 0,
+    can_undo: raw?.can_undo === true,
+    redo_candidates: Array.isArray(raw?.redo_candidates) ? raw.redo_candidates : [],
+    revisions: Array.isArray(raw?.revisions) ? raw.revisions : [],
+  }
 }
 
 export function getSettings() {

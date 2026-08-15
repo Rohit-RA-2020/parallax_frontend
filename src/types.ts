@@ -1,4 +1,4 @@
-export type ToolId = 'media' | 'titles' | 'audio' | 'effects' | 'transitions'
+export type ToolId = 'media' | 'titles' | 'audio' | 'effects' | 'transitions' | 'history'
 
 export type TrackKind = 'video' | 'audio' | 'title'
 
@@ -23,7 +23,25 @@ export type Clip = {
   color: string
   waveSeed?: number
   linkId?: string
+  enabled?: boolean
+  transform?: TimelineTransform
+  playback?: TimelinePlayback
+  audio?: TimelineAudio
+  grade?: TimelineColor
+  title?: TimelineTitle
+  keyframes?: TimelineKeyframe[]
 }
+
+export type TimelineTransform = {
+  x?: number; y?: number; anchorX?: number; anchorY?: number
+  scaleX?: number; scaleY?: number; rotation?: number; opacity?: number
+  cropTop?: number; cropRight?: number; cropBottom?: number; cropLeft?: number
+}
+export type TimelinePlayback = { rate?: number; preservePitch?: boolean }
+export type TimelineAudio = { volumeDb?: number; muted?: boolean; pan?: number }
+export type TimelineColor = { exposure?: number; contrast?: number; saturation?: number; temperature?: number; tint?: number }
+export type TimelineTitle = { text: string; fontFamily?: string; fontSize?: number; fontWeight?: number; align?: string; fill?: string; stroke?: string; strokeWidth?: number; background?: string }
+export type TimelineKeyframe = { property: string; frame: number; value: number; easing?: 'linear' | 'ease_in' | 'ease_out' | 'ease_in_out' }
 
 export type Track = {
   id: string
