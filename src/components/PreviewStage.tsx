@@ -48,7 +48,6 @@ export function PreviewStage({
   onToggleSafe,
 }: Props) {
   const reduce = useReducedMotion()
-  const videoRef = useRef<HTMLVideoElement>(null)
   const filter = [
     `contrast(${1 + grade.contrast * 0.18})`,
     `saturate(${1 + grade.saturation * 0.2})`,
@@ -64,22 +63,6 @@ export function PreviewStage({
   const rotateY = useSpring(useTransform(px, [-0.5, 0.5], [-1.6, 1.6]), spring)
   const shiftX = useSpring(useTransform(px, [-0.5, 0.5], [-5, 5]), spring)
   const shiftY = useSpring(useTransform(py, [-0.5, 0.5], [-3, 3]), spring)
-
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video || clip?.mediaType !== 'video') return
-    const localTime = Math.max(0, currentTime - clip.start)
-    if (!isPlaying || Math.abs(video.currentTime - localTime) > 0.5) {
-      video.currentTime = Math.min(localTime, Number.isFinite(video.duration) ? video.duration : localTime)
-    }
-  }, [clip, currentTime, isPlaying])
-
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video || clip?.mediaType !== 'video') return
-    if (isPlaying) void video.play().catch(() => undefined)
-    else video.pause()
-  }, [clip?.id, clip?.mediaType, isPlaying])
 
   function onWellMove(e: PointerEvent<HTMLDivElement>) {
     if (reduce) return
@@ -132,21 +115,17 @@ export function PreviewStage({
                 }
           }
         >
-          <AnimatePresence initial={false}>
+          <AnimatePresence initial={false} mode="wait">
             {clip?.mediaType === 'video' && clip.src ? (
-              <motion.video
-                ref={videoRef}
-                key={clip.src || clip.id}
+              <PreviewVideo
+                key={clip.src}
                 src={clip.src}
+                start={clip.start}
+                currentTime={currentTime}
+                isPlaying={isPlaying}
                 muted={muted}
-                playsInline
-                preload="metadata"
-                initial={reduce ? false : { opacity: 0, scale: 1.025 }}
-                animate={{ opacity: 1, scale: isPlaying ? 1.018 : 1.006 }}
-                exit={reduce ? undefined : { opacity: 0 }}
-                transition={{ opacity: fadeSlow, scale: { duration: 1.4, ease: 'linear' } }}
-                className="preview-plate absolute inset-0 size-full object-cover"
-                style={{ filter }}
+                filter={filter}
+                reduce={!!reduce}
               />
             ) : clip?.thumb ? (
               <motion.img
@@ -277,6 +256,108 @@ export function PreviewStage({
 
       <ClipInspector clip={clip} />
     </section>
+  )
+}
+
+function PreviewVideo({
+  src,
+  start,
+  currentTime,
+  isPlaying,
+  muted,
+  filter,
+  reduce,
+}: {
+  src: string
+  start: number
+  currentTime: number
+  isPlaying: boolean
+  muted: boolean
+  filter: string
+  reduce: boolean
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const currentTimeRef = useRef(currentTime)
+  const isPlayingRef = useRef(isPlaying)
+  currentTimeRef.current = currentTime
+  isPlayingRef.current = isPlaying
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    let cancelled = false
+
+    const seekToClock = () => {
+      if (cancelled || video.readyState < HTMLMediaElement.HAVE_METADATA) return
+      const localTime = Math.max(0, currentTimeRef.current - start)
+      const duration = Number.isFinite(video.duration) ? video.duration : 0
+      const next = duration > 0 ? Math.min(localTime, Math.max(0, duration - 0.001)) : localTime
+      if (Math.abs(video.currentTime - next) > 0.04) {
+        video.currentTime = next
+      }
+    }
+
+    const onReady = () => {
+      if (cancelled) return
+      seekToClock()
+      if (isPlayingRef.current) {
+        void video.play().catch(() => undefined)
+      } else {
+        video.pause()
+      }
+    }
+
+    const onCanPlay = () => {
+      if (cancelled || !isPlayingRef.current || !video.paused) return
+      void video.play().catch(() => undefined)
+    }
+
+    video.addEventListener('loadedmetadata', onReady)
+    video.addEventListener('canplay', onCanPlay)
+    video.load()
+
+    return () => {
+      cancelled = true
+      video.removeEventListener('loadedmetadata', onReady)
+      video.removeEventListener('canplay', onCanPlay)
+      video.pause()
+    }
+  }, [src, start])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return
+    const localTime = Math.max(0, currentTime - start)
+    if (!isPlaying || Math.abs(video.currentTime - localTime) > 0.5) {
+      video.currentTime = Math.min(localTime, Number.isFinite(video.duration) ? video.duration : localTime)
+    }
+  }, [currentTime, isPlaying, start])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return
+    if (isPlaying) void video.play().catch(() => undefined)
+    else video.pause()
+  }, [isPlaying])
+
+  return (
+    <motion.div
+      initial={reduce ? false : { opacity: 0, scale: 1.025 }}
+      animate={{ opacity: 1, scale: isPlaying ? 1.018 : 1.006 }}
+      exit={reduce ? undefined : { opacity: 0 }}
+      transition={{ opacity: fadeSlow, scale: { duration: 1.4, ease: 'linear' } }}
+      className="preview-plate absolute inset-0"
+    >
+      <video
+        ref={videoRef}
+        src={src}
+        muted={muted}
+        playsInline
+        preload="auto"
+        className="size-full object-cover"
+        style={{ filter }}
+      />
+    </motion.div>
   )
 }
 

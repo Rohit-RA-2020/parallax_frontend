@@ -16,6 +16,7 @@ export type ProjectMedia = {
   content_type: string
   content_url: string
   bytes: number
+  duration?: number
   modified_at: string
 }
 
@@ -75,6 +76,52 @@ export async function uploadProjectMedia(projectID: string, files: File[]) {
 
 export function mediaURL(item: ProjectMedia) {
   return API_BASE + item.content_url
+}
+
+export type ExportFormat = 'mp4' | 'mov' | 'webm' | 'gif' | 'mp3'
+export type ExportQuality = 'draft' | 'standard' | 'high' | 'original'
+export type ExportResolution = 'source' | '3840x2160' | '1920x1080' | '1280x720' | '854x480'
+
+export type ExportRequest = {
+  source: string
+  format: ExportFormat
+  quality: ExportQuality
+  resolution: ExportResolution
+  fps: number
+  audio: boolean
+  start?: number
+  duration?: number
+  filename: string
+}
+
+export type ExportResult = {
+  media: ProjectMedia
+  download_url: string
+}
+
+export function exportProjectMedia(projectID: string, body: ExportRequest) {
+  return request<ExportResult>(`/v1/projects/${projectID}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function downloadProjectFile(contentURL: string, filename: string) {
+  const response = await fetch(API_BASE + contentURL)
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error || `Download failed (${response.status})`)
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.append(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 export async function deleteProjectMedia(projectID: string, path: string) {

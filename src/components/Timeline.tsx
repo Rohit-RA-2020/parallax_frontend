@@ -380,6 +380,19 @@ function ClipBlock({
             : 'linear-gradient(180deg, #2a2418, #1b1710)',
       }}
     >
+      {clip.mediaType === 'video' && clip.src && (
+        <>
+          <video
+            key={clip.src}
+            src={clip.src}
+            muted
+            preload="metadata"
+            playsInline
+            className="pointer-events-none absolute inset-0 size-full object-cover"
+          />
+          <span className="pointer-events-none absolute inset-0 bg-linear-to-t from-black/55 to-black/10" />
+        </>
+      )}
       {clip.kind === 'audio' && (
         <div className="absolute inset-x-1 inset-y-1 flex items-end gap-px">
           {bars.map((h, i) => (

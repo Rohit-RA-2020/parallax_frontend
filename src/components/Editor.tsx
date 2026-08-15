@@ -11,6 +11,8 @@ import {
   createProjectChat,
   deleteProjectChat,
   deleteProjectMedia,
+  downloadProjectFile,
+  exportProjectMedia,
   getProjectChat,
   listProjectChats,
   listProjectMedia,
@@ -21,6 +23,7 @@ import {
   type ChatRecord,
   type ProjectMedia,
   type ProjectRecord,
+  type ExportRequest,
   type SavedChatMessage,
 } from '../lib/api'
 import { TopBar } from './TopBar'
@@ -29,6 +32,7 @@ import { MediaPanel } from './MediaPanel'
 import { PreviewStage } from './PreviewStage'
 import { Timeline } from './Timeline'
 import { ChatPanel, ChatRail } from './ChatPanel'
+import { ExportDialog } from './ExportDialog'
 import { fade, panelTransition } from '../lib/motion'
 
 export function Editor() {
@@ -56,6 +60,8 @@ export function Editor() {
   const [sessionId, setSessionId] = useState('')
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [createOpen, setCreateOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [projectNameDraft, setProjectNameDraft] = useState('')
   const [creatingProject, setCreatingProject] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -67,12 +73,22 @@ export function Editor() {
   selectedIdRef.current = selectedId
   const clipsRef = useRef(clips)
   clipsRef.current = clips
+  const assetsRef = useRef(assets)
+  assetsRef.current = assets
 
   const refreshMedia = useCallback(async (id: string) => {
     setMediaLoading(true)
     try {
       const items = await listProjectMedia(id)
-      const next = items.map(toMediaAsset)
+      const previous = new Map(
+        assetsRef.current.filter((asset) => asset.path).map((asset) => [asset.path as string, asset]),
+      )
+      const next = items.map((item) => {
+        const asset = toMediaAsset(item)
+        if (asset.duration > 0 || !asset.path) return asset
+        const known = previous.get(asset.path)
+        return known?.duration ? { ...asset, duration: known.duration } : asset
+      })
       setAssets(next)
       setClips((current) => syncClipMedia(current, next))
     } catch (error) {
@@ -225,6 +241,21 @@ export function Editor() {
     }
   }
 
+  function applyMediaDuration(assetId: string, nextDuration: number) {
+    if (!Number.isFinite(nextDuration) || nextDuration <= 0) return
+    setAssets((current) => current.map((asset) =>
+      asset.id === assetId ? { ...asset, duration: nextDuration } : asset,
+    ))
+    const asset = assetsRef.current.find((item) => item.id === assetId)
+    if (!asset) return
+    const linked = { ...asset, duration: nextDuration }
+    setClips((current) => current.map((clip) => {
+      if (!clipUsesAsset(clip, linked)) return clip
+      if (Math.abs(clip.duration - nextDuration) < 0.05) return clip
+      return { ...clip, duration: nextDuration }
+    }))
+  }
+
   function addAsset(asset: MediaAsset, start = currentTime, track?: string) {
     const clip = clipFromAsset(asset, start, track)
     setClips((prev) => [...prev, clip])
@@ -324,6 +355,21 @@ export function Editor() {
     }
   }
 
+  async function runExport(body: ExportRequest) {
+    if (!projectId) return
+    setExporting(true)
+    try {
+      const result = await exportProjectMedia(projectId, body)
+      await downloadProjectFile(result.download_url, result.media.name)
+      setExportOpen(false)
+      setToast(`Exported ${result.media.name}`)
+    } catch (error) {
+      setToast(errorMessage(error))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   async function upload(files: File[]) {
     if (!projectId || files.length === 0) return
     setUploading(true)
@@ -418,7 +464,14 @@ export function Editor() {
         onProject={(id) => openProject(id)}
         onCreateProject={() => setCreateOpen(true)}
         onUpload={() => fileInput.current?.click()}
-        onExport={() => setToast('Ask Director to render an output; completed files appear in this project.')}
+        exporting={exporting}
+        onExport={() => {
+          if (!projectId) {
+            setToast('Create a project before exporting')
+            return
+          }
+          setExportOpen(true)
+        }}
       />
       <input
         ref={fileInput}
@@ -446,9 +499,7 @@ export function Editor() {
                 assets={assets}
                 loading={mediaLoading}
                 hasProject={!!projectId}
-                onDuration={(id, duration) => setAssets((current) => current.map((asset) =>
-                  asset.id === id ? { ...asset, duration } : asset,
-                ))}
+                onDuration={(id, nextDuration) => applyMediaDuration(id, nextDuration)}
                 onAdd={(asset) => addAsset(asset)}
                 onDelete={(asset) => void deleteAsset(asset)}
               />
@@ -526,6 +577,22 @@ export function Editor() {
           )}
         </AnimatePresence>
       </div>
+
+      <AnimatePresence>
+        {exportOpen && (
+          <ExportDialog
+            projectName={projects.find((item) => item.id === projectId)?.name ?? 'Project'}
+            assets={assets}
+            selected={selected}
+            playhead={videoClip}
+            busy={exporting}
+            onClose={() => {
+              if (!exporting) setExportOpen(false)
+            }}
+            onExport={(body) => void runExport(body)}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {createOpen && (
@@ -613,11 +680,12 @@ function toMediaAsset(item: ProjectMedia): MediaAsset {
   const url = mediaURL(item)
   const kind = item.kind === 'audio' ? 'audio' : item.kind === 'subtitle' ? 'title' : 'video'
   const mediaType = item.kind === 'image' ? 'image' : item.kind === 'audio' ? 'audio' : 'video'
+  const measured = item.duration && item.duration > 0 ? item.duration : 0
   return {
     id: `project-${item.id}`,
     name: item.name,
     kind,
-    duration: item.kind === 'audio' ? 30 : item.kind === 'image' ? 5 : item.kind === 'subtitle' ? 4 : 8,
+    duration: measured || (item.kind === 'image' ? 5 : item.kind === 'subtitle' ? 4 : 0),
     thumb: item.kind === 'image' ? url : undefined,
     src: url,
     path: item.path,
@@ -652,12 +720,23 @@ function syncClipMedia(clips: Clip[], assets: MediaAsset[]) {
     const asset = (clip.mediaPath && byPath.get(clip.mediaPath))
       || (clip.src ? bySrc.get(stripQuery(clip.src)) : undefined)
     if (!asset) return clip
-    if (asset.src === clip.src && asset.thumb === clip.thumb) return clip
+    const nextDuration = asset.duration > 0 ? asset.duration : clip.duration
+    if (
+      asset.src === clip.src
+      && asset.thumb === clip.thumb
+      && asset.name === clip.name
+      && Math.abs(nextDuration - clip.duration) < 0.05
+    ) {
+      return clip
+    }
     return {
       ...clip,
+      name: asset.name || clip.name,
       src: asset.src,
       thumb: asset.thumb ?? clip.thumb,
       mediaPath: asset.path ?? clip.mediaPath,
+      mediaType: asset.mediaType ?? clip.mediaType,
+      duration: nextDuration,
     }
   })
 }

@@ -12,6 +12,7 @@ type Props = {
   projectId: string
   projectName: string
   uploading: boolean
+  exporting?: boolean
   onProject: (id: string) => void
   onCreateProject: () => void
   onUpload: () => void
@@ -23,6 +24,7 @@ export function TopBar({
   projectId,
   projectName,
   uploading,
+  exporting,
   onProject,
   onCreateProject,
   onUpload,
@@ -96,13 +98,14 @@ export function TopBar({
         <motion.button
           type="button"
           onClick={onExport}
-          whileHover={reduce ? undefined : { y: -1 }}
-          whileTap={reduce ? undefined : { scale: 0.97 }}
+          disabled={!projectId || exporting}
+          whileHover={reduce || !projectId || exporting ? undefined : { y: -1 }}
+          whileTap={reduce || !projectId || exporting ? undefined : { scale: 0.97 }}
           transition={softSpring}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-cream px-3 text-[12px] font-medium text-ink"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-cream px-3 text-[12px] font-medium text-ink disabled:opacity-40"
         >
           <Download size={13} />
-          Export
+          {exporting ? 'Exporting…' : 'Export'}
         </motion.button>
       </div>
     </header>

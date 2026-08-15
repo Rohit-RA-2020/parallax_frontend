@@ -38,7 +38,7 @@ export function clipFromAsset(asset: MediaAsset, start: number, track?: string):
     track: track && trackAccepts(track, kind) ? track : defaultTrack(kind),
     kind,
     start: Math.max(0, start),
-    duration: asset.duration,
+    duration: asset.duration > 0 ? asset.duration : 8,
     thumb: asset.thumb,
     src: asset.src,
     mediaPath: asset.path,

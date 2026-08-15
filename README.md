@@ -25,7 +25,9 @@ VITE_API_URL=http://127.0.0.1:8080 npm run dev
 4. Ask Director to inspect or transform project files.
 5. Hover a bin item to delete it from the project. Timeline clips that used it
    are removed with the file.
-6. Director applies edits to the current clip in the bin. Separate files appear
+6. Use Export to pick format, quality, resolution, frame rate, and range, then
+   download the render.
+7. Director applies edits to the current clip in the bin. Separate files appear
    only when you ask for an export, highlight, or extract.
 
 Project metadata, media, and Director chats are persisted by the Go backend.
