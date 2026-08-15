@@ -11,9 +11,10 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import type { Clip, Grade } from '../types'
-import { PROJECT_FPS } from '../data/project'
+import { PROJECT_FPS, clipsAtTime } from '../data/project'
 import { DEFAULT_FRAME, fitContain, resolutionLabel } from '../lib/frame'
 import { clipSourceTime } from '../lib/timeline'
+import { programLabel, type ProgramFrame } from '../lib/program'
 import { formatRange, formatTimecode } from '../lib/time'
 import { fadeSlow, softSpring } from '../lib/motion'
 import { Atmosphere } from './Atmosphere'
@@ -25,8 +26,7 @@ type Props = {
   isPlaying: boolean
   muted: boolean
   safeArea: boolean
-  clip: Clip | undefined
-  titleClip: Clip | undefined
+  program: ProgramFrame
   audioClips?: Clip[]
   grade: Grade
   duration: number
@@ -41,8 +41,7 @@ export function PreviewStage({
   isPlaying,
   muted,
   safeArea,
-  clip,
-  titleClip,
+  program,
   audioClips = [],
   grade,
   duration,
@@ -73,9 +72,11 @@ export function PreviewStage({
 
   const frame = useMemo(() => {
     if (decoded.width > 0 && decoded.height > 0) return decoded
-    if (clip?.width && clip.height) return { width: clip.width, height: clip.height }
+    if (program.video?.clip.width && program.video.clip.height) {
+      return { width: program.video.clip.width, height: program.video.clip.height }
+    }
     return DEFAULT_FRAME
-  }, [clip?.width, clip?.height, decoded])
+  }, [program.video?.clip.width, program.video?.clip.height, decoded])
 
   const fitted = useMemo(
     () => fitContain(well.width, well.height, frame.width, frame.height),
@@ -83,6 +84,10 @@ export function PreviewStage({
   )
 
   const frameLabel = resolutionLabel(frame.width, frame.height)
+  const liveAudio = useMemo(() => clipsAtTime(audioClips, currentTime), [audioClips, currentTime])
+  const liveAudioIds = useMemo(() => new Set(liveAudio.map((item) => item.id)), [liveAudio])
+  const mixFromTracks = audioClips.some((item) => item.src)
+  const videoMuted = muted || mixFromTracks
 
   useLayoutEffect(() => {
     const el = wellRef.current
@@ -97,13 +102,14 @@ export function PreviewStage({
     return () => observer.disconnect()
   }, [])
 
+  const picture = program.video?.clip
   useEffect(() => {
     setDecoded(
-      clip?.width && clip.height
-        ? { width: clip.width, height: clip.height }
+      picture?.width && picture.height
+        ? { width: picture.width, height: picture.height }
         : { width: 0, height: 0 },
     )
-  }, [clip?.id, clip?.src, clip?.width, clip?.height])
+  }, [picture])
 
   function onWellMove(e: PointerEvent<HTMLDivElement>) {
     if (reduce) return
@@ -121,10 +127,10 @@ export function PreviewStage({
     <section className="chrome flex min-h-0 min-w-0 flex-1 flex-col bg-void">
       <div className="flex h-10 shrink-0 items-center justify-between px-4">
         <div className="flex min-w-0 items-center gap-2 text-[11px] text-mute">
-          <span className="truncate text-cream">{clip?.name ?? 'Gap'}</span>
+          <span className="truncate text-cream">{programLabel(program)}</span>
           <span className="text-dim">·</span>
           <span className="font-mono text-dim">Program</span>
-          {clip && frameLabel && (
+          {program.video && frameLabel && (
             <>
               <span className="text-dim">·</span>
               <span className="font-mono text-dim">{frameLabel}</span>
@@ -148,6 +154,22 @@ export function PreviewStage({
         onPointerLeave={onWellLeave}
         style={{ perspective: 900 }}
       >
+        <div className="sr-only" aria-hidden>
+          {audioClips.map((audio) => (
+            audio.src ? (
+              <ProgramAudio
+                key={audio.id}
+                src={audio.src}
+                start={audio.start}
+                sourceIn={audio.sourceIn ?? 0}
+                currentTime={currentTime}
+                isPlaying={isPlaying}
+                muted={muted}
+                active={liveAudioIds.has(audio.id)}
+              />
+            ) : null
+          ))}
+        </div>
         <Atmosphere playing={isPlaying} />
         <motion.div
           className="relative z-10 overflow-hidden rounded-sm bg-black shadow-[0_0_0_1px_var(--preview-ring),0_30px_80px_var(--preview-glow)]"
@@ -170,32 +192,29 @@ export function PreviewStage({
                 }),
           }}
         >
-          <AnimatePresence initial={false} mode="wait">
-            {clip?.mediaType === 'video' && clip.src ? (
+          <AnimatePresence initial={false}>
+            {program.video?.clip.mediaType === 'video' && program.video.clip.src ? (
               <PreviewVideo
-                key={`${clip.id}:${clip.src}`}
-                src={clip.src}
-                start={clip.start}
-                sourceIn={clip.sourceIn ?? 0}
+                key={program.video.clip.src}
+                src={program.video.clip.src}
+                start={program.video.clip.start}
+                sourceIn={program.video.clip.sourceIn ?? 0}
                 currentTime={currentTime}
                 isPlaying={isPlaying}
-                muted={muted || audioClips.length > 0}
+                muted={videoMuted}
                 filter={filter}
                 reduce={!!reduce}
                 onFrame={(width, height) => setDecoded({ width, height })}
               />
-            ) : clip?.thumb ? (
+            ) : program.video?.clip.thumb ? (
               <motion.img
-                key={clip.id}
-                src={clip.thumb}
+                key={program.video.clip.id}
+                src={program.video.clip.thumb}
                 alt=""
-                initial={reduce ? false : { opacity: 0, scale: 1.025 }}
-                animate={{ opacity: 1, scale: isPlaying ? 1.035 : 1.012 }}
+                initial={reduce ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
                 exit={reduce ? undefined : { opacity: 0 }}
-                transition={{
-                  opacity: fadeSlow,
-                  scale: { duration: isPlaying ? 10 : 1.4, ease: 'linear' },
-                }}
+                transition={fadeSlow}
                 onLoad={(event) => {
                   const el = event.currentTarget
                   if (el.naturalWidth > 0 && el.naturalHeight > 0) {
@@ -205,9 +224,7 @@ export function PreviewStage({
                 className="preview-plate absolute inset-0 size-full object-contain"
                 style={{ filter, transformOrigin: '60% 40%' }}
               />
-            ) : (
-              <div className="grid size-full place-items-center text-[12px] text-dim">No clip</div>
-            )}
+            ) : null}
           </AnimatePresence>
 
           <div className="grain pointer-events-none absolute inset-0" />
@@ -218,7 +235,7 @@ export function PreviewStage({
           )}
 
           <AnimatePresence>
-            {titleClip && (
+            {program.overlay && (
               <motion.div
                 initial={reduce ? false : { opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -228,25 +245,11 @@ export function PreviewStage({
               >
                 <div className="text-[10px] tracking-[0.42em] text-plate/70 uppercase">A film</div>
                 <div className="mt-1 font-medium tracking-[0.28em] text-plate uppercase">
-                  {titleClip.name}
+                  {program.overlay.clip.name}
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
-
-          {audioClips.map((audio) => (
-            audio.src ? (
-              <ProgramAudio
-                key={`${audio.id}:${audio.src}`}
-                src={audio.src}
-                start={audio.start}
-                sourceIn={audio.sourceIn ?? 0}
-                currentTime={currentTime}
-                isPlaying={isPlaying}
-                muted={muted}
-              />
-            ) : null
-          ))}
 
           <div className="pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-2">
             <motion.span
@@ -331,9 +334,44 @@ export function PreviewStage({
         </IconButton>
       </div>
 
-      <ClipInspector clip={clip} frameLabel={frameLabel} />
+      <ClipInspector program={program} frameLabel={frameLabel} />
     </section>
   )
+}
+
+function mediaClockTime(
+  media: HTMLMediaElement,
+  start: number,
+  sourceIn: number,
+  timelineTime: number,
+) {
+  const localTime = clipSourceTime({ start, sourceIn }, timelineTime)
+  const duration = Number.isFinite(media.duration) ? media.duration : 0
+  return duration > 0 ? Math.min(localTime, Math.max(0, duration - 0.001)) : localTime
+}
+
+function syncMediaClock(
+  media: HTMLMediaElement,
+  start: number,
+  sourceIn: number,
+  timelineTime: number,
+  isPlaying: boolean,
+  active = true,
+) {
+  if (media.readyState < HTMLMediaElement.HAVE_METADATA) return
+  if (!active) {
+    if (!media.paused) media.pause()
+    return
+  }
+  const next = mediaClockTime(media, start, sourceIn, timelineTime)
+  const drift = Math.abs(media.currentTime - next)
+  if (!isPlaying) {
+    if (drift > 1 / 60) media.currentTime = next
+    if (!media.paused) media.pause()
+    return
+  }
+  if (drift > 0.25) media.currentTime = next
+  if (media.paused) void media.play().catch(() => undefined)
 }
 
 function PreviewVideo({
@@ -358,9 +396,13 @@ function PreviewVideo({
   onFrame?: (width: number, height: number) => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const startRef = useRef(start)
+  const sourceInRef = useRef(sourceIn)
   const currentTimeRef = useRef(currentTime)
   const isPlayingRef = useRef(isPlaying)
   const onFrameRef = useRef(onFrame)
+  startRef.current = start
+  sourceInRef.current = sourceIn
   currentTimeRef.current = currentTime
   isPlayingRef.current = isPlaying
   onFrameRef.current = onFrame
@@ -370,16 +412,6 @@ function PreviewVideo({
     if (!video) return
     let cancelled = false
 
-    const seekToClock = () => {
-      if (cancelled || video.readyState < HTMLMediaElement.HAVE_METADATA) return
-      const localTime = clipSourceTime({ start, sourceIn }, currentTimeRef.current)
-      const duration = Number.isFinite(video.duration) ? video.duration : 0
-      const next = duration > 0 ? Math.min(localTime, Math.max(0, duration - 0.001)) : localTime
-      if (Math.abs(video.currentTime - next) > 0.04) {
-        video.currentTime = next
-      }
-    }
-
     const reportFrame = () => {
       if (cancelled || video.videoWidth < 1 || video.videoHeight < 1) return
       onFrameRef.current?.(video.videoWidth, video.videoHeight)
@@ -388,57 +420,42 @@ function PreviewVideo({
     const onReady = () => {
       if (cancelled) return
       reportFrame()
-      seekToClock()
-      if (isPlayingRef.current) {
-        void video.play().catch(() => undefined)
-      } else {
-        video.pause()
-      }
-    }
-
-    const onCanPlay = () => {
-      if (cancelled || !isPlayingRef.current || !video.paused) return
-      void video.play().catch(() => undefined)
+      syncMediaClock(
+        video,
+        startRef.current,
+        sourceInRef.current,
+        currentTimeRef.current,
+        isPlayingRef.current,
+      )
     }
 
     video.addEventListener('loadedmetadata', onReady)
     video.addEventListener('loadeddata', reportFrame)
     video.addEventListener('resize', reportFrame)
-    video.addEventListener('canplay', onCanPlay)
-    video.load()
+    video.addEventListener('canplay', onReady)
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) onReady()
 
     return () => {
       cancelled = true
       video.removeEventListener('loadedmetadata', onReady)
       video.removeEventListener('loadeddata', reportFrame)
       video.removeEventListener('resize', reportFrame)
-      video.removeEventListener('canplay', onCanPlay)
-      video.pause()
+      video.removeEventListener('canplay', onReady)
     }
-  }, [src, start, sourceIn])
+  }, [src])
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return
-    const localTime = clipSourceTime({ start, sourceIn }, currentTime)
-    if (!isPlaying || Math.abs(video.currentTime - localTime) > 0.5) {
-      video.currentTime = Math.min(localTime, Number.isFinite(video.duration) ? video.duration : localTime)
-    }
+    if (!video) return
+    syncMediaClock(video, start, sourceIn, currentTime, isPlaying)
   }, [currentTime, isPlaying, start, sourceIn])
-
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return
-    if (isPlaying) void video.play().catch(() => undefined)
-    else video.pause()
-  }, [isPlaying])
 
   return (
     <motion.div
-      initial={reduce ? false : { opacity: 0, scale: 1.025 }}
+      initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1, scale: isPlaying ? 1.018 : 1.006 }}
       exit={reduce ? undefined : { opacity: 0 }}
-      transition={{ opacity: fadeSlow, scale: { duration: 1.4, ease: 'linear' } }}
+      transition={{ opacity: { duration: 0.12 }, scale: { duration: 1.4, ease: 'linear' } }}
       className="preview-plate absolute inset-0"
     >
       <video
@@ -461,6 +478,7 @@ function ProgramAudio({
   currentTime,
   isPlaying,
   muted,
+  active,
 }: {
   src: string
   start: number
@@ -468,88 +486,69 @@ function ProgramAudio({
   currentTime: number
   isPlaying: boolean
   muted: boolean
+  active: boolean
 }) {
-  const audioRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const startRef = useRef(start)
+  const sourceInRef = useRef(sourceIn)
   const currentTimeRef = useRef(currentTime)
   const isPlayingRef = useRef(isPlaying)
+  const activeRef = useRef(active)
+  startRef.current = start
+  sourceInRef.current = sourceIn
   currentTimeRef.current = currentTime
   isPlayingRef.current = isPlaying
+  activeRef.current = active
 
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
     let cancelled = false
 
-    const seekToClock = () => {
-      if (cancelled || audio.readyState < HTMLMediaElement.HAVE_METADATA) return
-      const localTime = clipSourceTime({ start, sourceIn }, currentTimeRef.current)
-      const duration = Number.isFinite(audio.duration) ? audio.duration : 0
-      const next = duration > 0 ? Math.min(localTime, Math.max(0, duration - 0.001)) : localTime
-      if (Math.abs(audio.currentTime - next) > 0.04) {
-        audio.currentTime = next
-      }
-    }
-
     const onReady = () => {
       if (cancelled) return
-      seekToClock()
-      if (isPlayingRef.current) {
-        void audio.play().catch(() => undefined)
-      } else {
-        audio.pause()
-      }
-    }
-
-    const onCanPlay = () => {
-      if (cancelled || !isPlayingRef.current || !audio.paused) return
-      void audio.play().catch(() => undefined)
+      syncMediaClock(
+        audio,
+        startRef.current,
+        sourceInRef.current,
+        currentTimeRef.current,
+        isPlayingRef.current,
+        activeRef.current,
+      )
     }
 
     audio.addEventListener('loadedmetadata', onReady)
-    audio.addEventListener('canplay', onCanPlay)
-    audio.load()
+    audio.addEventListener('canplay', onReady)
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) onReady()
 
     return () => {
       cancelled = true
       audio.removeEventListener('loadedmetadata', onReady)
-      audio.removeEventListener('canplay', onCanPlay)
-      audio.pause()
+      audio.removeEventListener('canplay', onReady)
     }
-  }, [src, start, sourceIn])
+  }, [src])
 
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio || audio.readyState < HTMLMediaElement.HAVE_METADATA) return
-    const localTime = clipSourceTime({ start, sourceIn }, currentTime)
-    if (!isPlaying || Math.abs(audio.currentTime - localTime) > 0.5) {
-      audio.currentTime = Math.min(localTime, Number.isFinite(audio.duration) ? audio.duration : localTime)
-    }
-  }, [currentTime, isPlaying, start, sourceIn])
-
-  useEffect(() => {
-    const audio = audioRef.current
-    if (!audio || audio.readyState < HTMLMediaElement.HAVE_METADATA) return
-    if (isPlaying) void audio.play().catch(() => undefined)
-    else audio.pause()
-  }, [isPlaying])
+    if (!audio) return
+    syncMediaClock(audio, start, sourceIn, currentTime, isPlaying, active)
+  }, [currentTime, isPlaying, start, sourceIn, active])
 
   return (
-    <video
+    <audio
       ref={audioRef}
       src={src}
       muted={muted}
-      playsInline
       preload="auto"
-      className="pointer-events-none absolute h-0 w-0 opacity-0"
-      aria-hidden
     />
   )
 }
 
-function ClipInspector({ clip, frameLabel }: { clip: Clip | undefined; frameLabel: string }) {
+function ClipInspector({ program, frameLabel }: { program: ProgramFrame; frameLabel: string }) {
+  const clip = program.video?.clip ?? program.overlay?.clip ?? program.audio[0]?.clip
   return (
     <div className="chrome flex h-9 shrink-0 items-center gap-5 border-t border-line px-4 text-[11px]">
-      <span className="w-28 truncate text-mute">{clip?.name ?? 'No selection under playhead'}</span>
+      <span className="w-28 truncate text-mute">{program.gap && !clip ? 'Gap' : programLabel(program)}</span>
       {clip && (
         <>
           <span className="font-mono text-dim">{formatRange(clip.start, clip.duration)}</span>
@@ -562,7 +561,7 @@ function ClipInspector({ clip, frameLabel }: { clip: Clip | undefined; frameLabe
           <span className="text-dim">
             Dur <span className="font-mono text-mute">{formatTimecode(clip.duration)}</span>
           </span>
-          {frameLabel && (
+          {frameLabel && program.video && (
             <span className="text-dim">
               Frame <span className="font-mono text-mute">{frameLabel}</span>
             </span>

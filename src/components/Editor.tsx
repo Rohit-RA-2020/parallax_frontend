@@ -3,9 +3,8 @@ import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-m
 import type { ChatMessage, Clip, Grade, MediaAsset, ToolId } from '../types'
 import {
   PROJECT_FPS,
-  clipAtTime,
-  clipsAtTime,
 } from '../data/project'
+import { programAtTime, sequenceAudioClips } from '../lib/program'
 import {
   clipContainsTime,
   clipsFromAsset,
@@ -98,7 +97,7 @@ export function Editor() {
   const [creatingProject, setCreatingProject] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
-  const duration = useMemo(() => sequenceDuration(clips), [clips])
+  const duration = useMemo(() => sequenceDuration(clips, assets), [clips, assets])
   const durationRef = useRef(duration)
   durationRef.current = duration
   const selectedIdRef = useRef(selectedId)
@@ -334,12 +333,11 @@ export function Editor() {
   }, [])
 
   const removeClip = useCallback((id: string) => {
-    const group = linkedClips(clipsRef.current, id)
-    if (group.length === 0) return
-    const ids = new Set(group.map((clip) => clip.id))
-    setClips((prev) => removeClips(prev, ids, editModeRef.current, PROJECT_FPS))
-    setSelectedId((cur) => (cur && ids.has(cur) ? null : cur))
-    setToast(group.length > 1 ? `Removed ${group[0].name} and linked audio` : `Removed ${group[0].name}`)
+    const clip = clipsRef.current.find((item) => item.id === id)
+    if (!clip) return
+    setClips((prev) => removeClips(prev, [id], editModeRef.current, PROJECT_FPS))
+    setSelectedId((cur) => (cur === id ? null : cur))
+    setToast(`Removed ${clip.name}`)
   }, [])
 
   const splitAtPlayhead = useCallback(() => {
@@ -484,9 +482,8 @@ export function Editor() {
     if (currentTime > duration) setCurrentTime(duration)
   }, [currentTime, duration])
 
-  const videoClip = useMemo(() => clipAtTime(clips, currentTime, 'video'), [clips, currentTime])
-  const titleClip = useMemo(() => clipAtTime(clips, currentTime, 'title'), [clips, currentTime])
-  const audioClips = useMemo(() => clipsAtTime(clips, currentTime, 'audio'), [clips, currentTime])
+  const program = useMemo(() => programAtTime(clips, currentTime), [clips, currentTime])
+  const audioClips = useMemo(() => sequenceAudioClips(clips), [clips])
   const selected = clips.find((c) => c.id === selectedId)
   const selectedIds = useMemo(() => new Set(selectedId ? linkedIds(clips, selectedId) : []), [clips, selectedId])
   const canUnlink = selectedIds.size > 1
@@ -679,6 +676,7 @@ export function Editor() {
     if (!projectId) return
     setExporting(true)
     try {
+      await flushTimeline()
       const result = await exportProjectMedia(projectId, body)
       await downloadProjectFile(result.download_url, result.media.name)
       setExportOpen(false)
@@ -834,8 +832,7 @@ export function Editor() {
             isPlaying={isPlaying}
             muted={muted}
             safeArea={safeArea}
-            clip={videoClip}
-            titleClip={titleClip}
+            program={program}
             audioClips={audioClips}
             grade={grade}
             duration={duration}
@@ -846,7 +843,8 @@ export function Editor() {
           />
           <Timeline
             clips={clips}
-            selectedIds={selectedIds}
+            selectedId={selectedId}
+            linkedIds={selectedIds}
             currentTime={currentTime}
             duration={duration}
             pxPerSecond={pxPerSecond}
@@ -924,7 +922,9 @@ export function Editor() {
             projectName={projects.find((item) => item.id === projectId)?.name ?? 'Project'}
             assets={assets}
             selected={selected}
-            playhead={videoClip}
+            playhead={program.video?.clip}
+            sequenceDuration={duration}
+            hasSequence={clips.length > 0}
             busy={exporting}
             onClose={() => {
               if (!exporting) setExportOpen(false)

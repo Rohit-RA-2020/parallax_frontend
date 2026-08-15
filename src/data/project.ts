@@ -129,10 +129,17 @@ export const suggestions = [
 ]
 
 export function clipsAtTime(clips: Clip[], time: number, kind?: Clip['kind']) {
-  return clips.filter((clip) => (
+  const frame = 1 / PROJECT_FPS
+  const hits = clips.filter((clip) => (
     (kind == null || clip.kind === kind)
     && time >= clip.start
     && time < clip.start + clip.duration
+  ))
+  if (hits.length > 0) return hits
+  return clips.filter((clip) => (
+    (kind == null || clip.kind === kind)
+    && time + frame * 0.5 >= clip.start
+    && time < clip.start + clip.duration + frame * 0.5
   ))
 }
 

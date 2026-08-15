@@ -24,7 +24,8 @@ VITE_API_URL=http://127.0.0.1:8080 npm run dev
 3. Click or drag media from the bin onto the timeline. A video drop creates
    linked **V1 + A1** clips from the same file. **C** / **B** / **⌘K** splits
    at the playhead, **S** toggles snap, **R** switches overwrite and ripple,
-   and **U** unlinks a pair. The monitor mixes A1 and A2.
+   and **U** unlinks a pair. Program (and Sequence export) share one model:
+   V1 under V2, mixed A1/A2, and black gaps.
 4. Ask Director to inspect or transform project files.
 5. Hover a bin item to delete it from the project. Timeline clips that used it
    are removed with the file.

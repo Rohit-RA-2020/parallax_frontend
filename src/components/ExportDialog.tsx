@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { Clip, MediaAsset } from '../types'
 import type { ExportFormat, ExportQuality, ExportRequest, ExportResolution } from '../lib/api'
+import { SEQUENCE_SOURCE } from '../lib/program'
 import { fade } from '../lib/motion'
 import { cn } from '../lib/cn'
 
@@ -17,6 +18,8 @@ type Props = {
   assets: MediaAsset[]
   selected?: Clip
   playhead?: Clip
+  sequenceDuration?: number
+  hasSequence?: boolean
   busy: boolean
   onClose: () => void
   onExport: (body: ExportRequest) => void
@@ -58,12 +61,17 @@ export function ExportDialog({
   assets,
   selected,
   playhead,
+  sequenceDuration = 0,
+  hasSequence = false,
   busy,
   onClose,
   onExport,
 }: Props) {
   const reduce = useReducedMotion()
-  const sources = useMemo(() => collectSources(assets, selected, playhead), [assets, selected, playhead])
+  const sources = useMemo(
+    () => collectSources(assets, selected, playhead, hasSequence, sequenceDuration),
+    [assets, selected, playhead, hasSequence, sequenceDuration],
+  )
   const [sourceId, setSourceId] = useState(sources[0]?.id ?? '')
   const [format, setFormat] = useState<ExportFormat>('mp4')
   const [quality, setQuality] = useState<ExportQuality>('standard')
@@ -127,11 +135,15 @@ export function ExportDialog({
         className="w-[440px] rounded-xl border border-line bg-panel p-5 shadow-2xl"
       >
         <h2 id="export-title" className="text-[16px] font-medium text-cream">Export</h2>
-        <p className="mt-1 text-[12px] text-mute">Render a file from this project and download it.</p>
+        <p className="mt-1 text-[12px] text-mute">
+          {source?.path === SEQUENCE_SOURCE
+            ? 'Renders the timeline — V1, V2, mixed A tracks, and gaps — the same way Program plays it.'
+            : 'Render a file from this project and download it.'}
+        </p>
 
         {sources.length === 0 ? (
           <div className="mt-5 rounded-lg border border-dashed border-line px-3 py-8 text-center text-[12px] text-dim">
-            Upload a video or audio file before exporting.
+            Add clips to the timeline or upload a file before exporting.
           </div>
         ) : (
           <div className="mt-5 space-y-3.5">
@@ -291,13 +303,22 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 const selectClass =
   'h-9 w-full rounded-lg border border-line bg-well px-3 text-[13px] text-cream outline-none focus:border-line-strong'
 
-function collectSources(assets: MediaAsset[], selected?: Clip, playhead?: Clip): SourceOption[] {
+function collectSources(
+  assets: MediaAsset[],
+  selected: Clip | undefined,
+  playhead: Clip | undefined,
+  hasSequence: boolean,
+  sequenceDuration: number,
+): SourceOption[] {
   const out: SourceOption[] = []
   const seen = new Set<string>()
   const push = (id: string, label: string, path: string, duration: number) => {
     if (!path || seen.has(path)) return
     seen.add(path)
     out.push({ id, label, path, duration })
+  }
+  if (hasSequence) {
+    push('sequence', 'Sequence · Program', SEQUENCE_SOURCE, sequenceDuration)
   }
   if (selected?.mediaPath && (selected.kind === 'video' || selected.kind === 'audio')) {
     push(`clip-${selected.id}`, `Selected · ${selected.name}`, selected.mediaPath, selected.duration)
@@ -313,6 +334,8 @@ function collectSources(assets: MediaAsset[], selected?: Clip, playhead?: Clip):
 }
 
 function defaultFilename(projectName: string, source?: SourceOption) {
-  const base = source?.label.replace(/^(Selected|Playhead) · /, '') || projectName || 'export'
+  const base = source?.path === SEQUENCE_SOURCE
+    ? projectName || 'sequence'
+    : source?.label.replace(/^(Selected|Playhead) · /, '') || projectName || 'export'
   return `${base} export`.replace(/\s+/g, ' ').trim()
 }

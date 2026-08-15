@@ -2,7 +2,7 @@ import type { Clip, MediaAsset, TrackKind } from '../types'
 import { PROJECT_FPS } from '../data/project'
 import { clampClip, frameDuration, snapTime } from './timeline'
 
-export const MIN_DURATION = 28
+export const MIN_DURATION = 8
 export const ASSET_MIME = 'application/x-parallax-asset'
 export const SNAP_PX = 8
 
@@ -20,9 +20,17 @@ const COLOR_FOR: Record<TrackKind, string> = {
   audio: '#3d8f72',
 }
 
-export function sequenceDuration(clips: Clip[]) {
-  const end = clips.reduce((max, clip) => Math.max(max, clip.start + clip.duration), 0)
-  return Math.max(MIN_DURATION, end + 2)
+export function sequenceDuration(clips: Clip[], assets: Array<{ duration: number }> = []) {
+  let end = 0
+  for (const clip of clips) {
+    end = Math.max(end, clip.start + clip.duration)
+  }
+  if (end <= 0) {
+    for (const asset of assets) {
+      if (asset.duration > 0) end = Math.max(end, asset.duration)
+    }
+  }
+  return end > 0 ? end : MIN_DURATION
 }
 
 export function defaultTrack(kind: TrackKind) {
@@ -457,7 +465,15 @@ export function removeClips(
 ): Clip[] {
   const remove = new Set(ids)
   const doomed = clips.filter((clip) => remove.has(clip.id))
-  const next = clips.filter((clip) => !remove.has(clip.id))
+  let next = clips.filter((clip) => !remove.has(clip.id))
+  const broken = new Set(doomed.map((clip) => clip.linkId).filter((id): id is string => Boolean(id)))
+  if (broken.size > 0) {
+    next = next.map((clip) => {
+      if (!clip.linkId || !broken.has(clip.linkId)) return clip
+      const remaining = next.filter((other) => other.linkId === clip.linkId).length
+      return remaining < 2 ? { ...clip, linkId: undefined } : clip
+    })
+  }
   if (mode !== 'ripple' || doomed.length === 0) return next
   const originStart = Math.min(...doomed.map((clip) => clip.start))
   const originDuration = doomed[0].duration

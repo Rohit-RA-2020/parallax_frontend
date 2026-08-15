@@ -34,7 +34,8 @@ type DropGhost = {
 
 type Props = {
   clips: Clip[]
-  selectedIds: Set<string>
+  selectedId: string | null
+  linkedIds: Set<string>
   currentTime: number
   duration: number
   pxPerSecond: number
@@ -58,7 +59,8 @@ type Props = {
 
 export function Timeline({
   clips,
-  selectedIds,
+  selectedId,
+  linkedIds,
   currentTime,
   duration,
   pxPerSecond,
@@ -289,7 +291,8 @@ export function Timeline({
               track={track}
               clips={clips.filter((c) => c.track === track.id)}
               allClips={clips}
-              selectedIds={selectedIds}
+              selectedId={selectedId}
+              linkedIds={linkedIds}
               currentTime={currentTime}
               pxPerSecond={pxPerSecond}
               snapEnabled={snapEnabled}
@@ -331,7 +334,8 @@ function TrackLane({
   track,
   clips,
   allClips,
-  selectedIds,
+  selectedId,
+  linkedIds,
   currentTime,
   pxPerSecond,
   snapEnabled,
@@ -348,7 +352,8 @@ function TrackLane({
   track: Track
   clips: Clip[]
   allClips: Clip[]
-  selectedIds: Set<string>
+  selectedId: string | null
+  linkedIds: Set<string>
   currentTime: number
   pxPerSecond: number
   snapEnabled: boolean
@@ -397,7 +402,8 @@ function TrackLane({
         <ClipBlock
           key={clip.id}
           clip={clip}
-          selected={selectedIds.has(clip.id)}
+          selected={selectedId === clip.id}
+          linked={selectedId !== clip.id && linkedIds.has(clip.id)}
           allClips={allClips}
           currentTime={currentTime}
           pxPerSecond={pxPerSecond}
@@ -417,6 +423,7 @@ function TrackLane({
 function ClipBlock({
   clip,
   selected,
+  linked,
   allClips,
   currentTime,
   pxPerSecond,
@@ -430,6 +437,7 @@ function ClipBlock({
 }: {
   clip: Clip
   selected: boolean
+  linked: boolean
   allClips: Clip[]
   currentTime: number
   pxPerSecond: number
@@ -583,7 +591,11 @@ function ClipBlock({
       }}
       className={cn(
         'absolute top-1.5 bottom-1.5 overflow-hidden rounded-[4px] text-left',
-        selected ? 'z-10 cursor-grab ring-1 ring-cream active:cursor-grabbing' : 'ring-1 ring-tick',
+        selected
+          ? 'z-10 cursor-grab ring-1 ring-cream active:cursor-grabbing'
+          : linked
+            ? 'z-10 cursor-grab ring-1 ring-cream/40'
+            : 'ring-1 ring-tick',
       )}
       style={{
         left: HEADER + clip.start * pxPerSecond,
