@@ -1,11 +1,22 @@
 import { useRef, useState, type DragEvent, type PointerEvent } from 'react'
-import { Eye, Type, Volume2, X } from 'lucide-react'
+import { Eye, Link2, Magnet, Scissors, Type, Unlink, Volume2, X } from 'lucide-react'
 import type { Clip, MediaAsset, Track } from '../types'
 import { PROJECT_FPS, markers, tracks } from '../data/project'
 import { formatClock } from '../lib/time'
 import { waveform } from '../lib/wave'
 import { cn } from '../lib/cn'
-import { getDraggingAsset, parseAssetTransfer, trackAccepts } from '../lib/edit'
+import {
+  collectSnapTimes,
+  dropAccepts,
+  getDraggingAsset,
+  linkedIds,
+  parseAssetTransfer,
+  snapInterval,
+  snapThresholdSeconds,
+  snapToTimes,
+  type EditMode,
+} from '../lib/edit'
+import { snapTime } from '../lib/timeline'
 
 const LANE: Record<Track['kind'], number> = {
   video: 56,
@@ -16,55 +27,81 @@ const HEADER = 72
 const RULER = 28
 
 type DropGhost = {
-  track: string
+  tracks: string[]
   time: number
   duration: number
 }
 
 type Props = {
   clips: Clip[]
-  selectedId: string | null
+  selectedIds: Set<string>
   currentTime: number
   duration: number
   pxPerSecond: number
+  snapEnabled: boolean
+  editMode: EditMode
+  canUnlink?: boolean
   onSelect: (id: string | null) => void
   onSeek: (time: number) => void
   onZoom: (px: number) => void
   onTrim: (id: string, start: number, duration: number, sourceIn: number) => void
   onMove: (id: string, start: number, track: string) => void
+  onCommit: () => void
   onRemove: (id: string) => void
+  onSplit: () => void
   onDropAsset: (asset: MediaAsset, start: number, track: string) => void
+  onToggleSnap: () => void
+  onEditMode: (mode: EditMode) => void
+  onUnlink?: () => void
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error'
 }
 
 export function Timeline({
   clips,
-  selectedId,
+  selectedIds,
   currentTime,
   duration,
   pxPerSecond,
+  snapEnabled,
+  editMode,
+  canUnlink = false,
   onSelect,
   onSeek,
   onZoom,
   onTrim,
   onMove,
+  onCommit,
   onRemove,
+  onSplit,
   onDropAsset,
+  onToggleSnap,
+  onEditMode,
+  onUnlink,
   saveStatus = 'idle',
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
   const [ghost, setGhost] = useState<DropGhost | null>(null)
+  const [snapGuide, setSnapGuide] = useState<number | null>(null)
 
   const contentW = Math.max(duration * pxPerSecond + 80, 640)
   const playX = HEADER + currentTime * pxPerSecond
   const ticks = buildTicks(duration, pxPerSecond)
+  const threshold = snapEnabled ? snapThresholdSeconds(pxPerSecond) : 0
 
   function timeFromClientX(clientX: number) {
     const el = scroller.current
     if (!el) return 0
     const x = clientX - el.getBoundingClientRect().left + el.scrollLeft - HEADER
     return Math.max(0, x / pxPerSecond)
+  }
+
+  function snapDrop(time: number, length: number, excludeIds: string[] = []) {
+    const raw = Math.max(0, time)
+    if (!snapEnabled) return { time: snapTime(raw, PROJECT_FPS), snapped: null as number | null }
+    const targets = collectSnapTimes(clips, currentTime, excludeIds)
+    const snapped = snapInterval(raw, length, targets, threshold)
+    return { time: snapTime(snapped.start, PROJECT_FPS), snapped: snapped.snapped }
   }
 
   function startScrub(e: PointerEvent<HTMLDivElement>) {
@@ -86,29 +123,35 @@ export function Timeline({
 
   function onDragOverLane(e: DragEvent, track: Track) {
     const asset = peekAsset()
-    if (!asset || !trackAccepts(track.id, asset.kind)) return
+    if (!asset || !dropAccepts(track.id, asset.kind, asset.mediaType)) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
+    const length = asset.duration > 0 ? asset.duration : 8
+    const snapped = snapDrop(timeFromClientX(e.clientX), length)
     setGhost({
-      track: track.id,
-      time: timeFromClientX(e.clientX),
-      duration: asset.duration,
+      tracks: asset.kind === 'video' && asset.mediaType !== 'image' ? ['V1', 'A1'] : [track.id],
+      time: snapped.time,
+      duration: length,
     })
+    setSnapGuide(snapped.snapped)
   }
 
   function onDropLane(e: DragEvent, track: Track) {
     e.preventDefault()
     setGhost(null)
+    setSnapGuide(null)
     const asset = parseAssetTransfer(e.dataTransfer)
-    if (!asset || !trackAccepts(track.id, asset.kind)) return
-    onDropAsset(asset, timeFromClientX(e.clientX), track.id)
+    if (!asset || !dropAccepts(track.id, asset.kind, asset.mediaType)) return
+    const length = asset.duration > 0 ? asset.duration : 8
+    const snapped = snapDrop(timeFromClientX(e.clientX), length)
+    onDropAsset(asset, snapped.time, track.id)
   }
 
   return (
     <div className="chrome flex h-[248px] shrink-0 flex-col border-t border-line bg-panel">
-      <div className="flex h-8 shrink-0 items-center justify-between border-b border-line px-3">
+      <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-line px-3">
         <span className="text-[10px] font-medium tracking-[0.16em] text-mute uppercase">Timeline</span>
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2">
           {saveStatus !== 'idle' && (
             <span className={cn(
               'text-[10px] uppercase tracking-wider',
@@ -117,8 +160,63 @@ export function Timeline({
               {saveStatus === 'saving' ? 'Saving' : saveStatus === 'saved' ? 'Saved' : 'Save failed'}
             </span>
           )}
-          <span className="hidden text-[10px] text-dim sm:inline">
-            Click or drag from the bin · Del removes
+          <button
+            type="button"
+            title="Split at playhead (C)"
+            aria-label="Split at playhead"
+            onClick={onSplit}
+            className="grid size-6 place-items-center rounded-md text-mute hover:bg-wash hover:text-cream"
+          >
+            <Scissors size={11} />
+          </button>
+          <button
+            type="button"
+            title={snapEnabled ? 'Snap on (S)' : 'Snap off (S)'}
+            aria-label={snapEnabled ? 'Snap on' : 'Snap off'}
+            aria-pressed={snapEnabled}
+            onClick={onToggleSnap}
+            className={cn(
+              'grid size-6 place-items-center rounded-md hover:bg-wash hover:text-cream',
+              snapEnabled ? 'bg-wash-strong text-cream' : 'text-mute',
+            )}
+          >
+            <Magnet size={11} />
+          </button>
+          {canUnlink && onUnlink && (
+            <button
+              type="button"
+              title="Unlink (U)"
+              aria-label="Unlink"
+              onClick={onUnlink}
+              className="grid size-6 place-items-center rounded-md text-mute hover:bg-wash hover:text-cream"
+            >
+              <Unlink size={11} />
+            </button>
+          )}
+          <div className="flex rounded-md border border-line p-px">
+            <button
+              type="button"
+              onClick={() => onEditMode('overwrite')}
+              className={cn(
+                'h-5 rounded-[5px] px-1.5 text-[9px] tracking-wider uppercase',
+                editMode === 'overwrite' ? 'bg-wash-strong text-cream' : 'text-dim hover:text-mute',
+              )}
+            >
+              Over
+            </button>
+            <button
+              type="button"
+              onClick={() => onEditMode('ripple')}
+              className={cn(
+                'h-5 rounded-[5px] px-1.5 text-[9px] tracking-wider uppercase',
+                editMode === 'ripple' ? 'bg-wash-strong text-cream' : 'text-dim hover:text-mute',
+              )}
+            >
+              Ripple
+            </button>
+          </div>
+          <span className="hidden text-[10px] text-dim lg:inline">
+            C splits · S snap · R mode · Del removes
           </span>
           <label className="flex items-center gap-2 text-[10px] text-dim">
             Zoom
@@ -142,9 +240,15 @@ export function Timeline({
         onPointerUp={endScrub}
         onPointerCancel={endScrub}
         onDragLeave={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node)) setGhost(null)
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setGhost(null)
+            setSnapGuide(null)
+          }
         }}
-        onDrop={() => setGhost(null)}
+        onDrop={() => {
+          setGhost(null)
+          setSnapGuide(null)
+        }}
       >
         <div className="relative" style={{ width: HEADER + contentW, minHeight: '100%' }}>
           <div
@@ -184,17 +288,31 @@ export function Timeline({
               key={track.id}
               track={track}
               clips={clips.filter((c) => c.track === track.id)}
-              selectedId={selectedId}
+              allClips={clips}
+              selectedIds={selectedIds}
+              currentTime={currentTime}
               pxPerSecond={pxPerSecond}
-              ghost={ghost?.track === track.id ? ghost : null}
+              snapEnabled={snapEnabled}
+              ghost={ghost?.tracks.includes(track.id) ? ghost : null}
               onSelect={onSelect}
               onTrim={onTrim}
               onMove={onMove}
+              onCommit={onCommit}
               onRemove={onRemove}
+              onSnapGuide={setSnapGuide}
               onDragOver={(e) => onDragOverLane(e, track)}
               onDrop={(e) => onDropLane(e, track)}
             />
           ))}
+
+          {snapGuide != null && (
+            <div
+              className="pointer-events-none absolute top-0 bottom-0 z-20"
+              style={{ left: HEADER + snapGuide * pxPerSecond }}
+            >
+              <div className="h-full w-px bg-cream/45" />
+            </div>
+          )}
 
           <div
             className="pointer-events-none absolute top-0 bottom-0 z-30"
@@ -212,25 +330,35 @@ export function Timeline({
 function TrackLane({
   track,
   clips,
-  selectedId,
+  allClips,
+  selectedIds,
+  currentTime,
   pxPerSecond,
+  snapEnabled,
   ghost,
   onSelect,
   onTrim,
   onMove,
+  onCommit,
   onRemove,
+  onSnapGuide,
   onDragOver,
   onDrop,
 }: {
   track: Track
   clips: Clip[]
-  selectedId: string | null
+  allClips: Clip[]
+  selectedIds: Set<string>
+  currentTime: number
   pxPerSecond: number
+  snapEnabled: boolean
   ghost: DropGhost | null
   onSelect: (id: string) => void
   onTrim: (id: string, start: number, duration: number, sourceIn: number) => void
   onMove: (id: string, start: number, track: string) => void
+  onCommit: () => void
   onRemove: (id: string) => void
+  onSnapGuide: (time: number | null) => void
   onDragOver: (e: DragEvent) => void
   onDrop: (e: DragEvent) => void
 }) {
@@ -269,12 +397,17 @@ function TrackLane({
         <ClipBlock
           key={clip.id}
           clip={clip}
-          selected={selectedId === clip.id}
+          selected={selectedIds.has(clip.id)}
+          allClips={allClips}
+          currentTime={currentTime}
           pxPerSecond={pxPerSecond}
+          snapEnabled={snapEnabled}
           onSelect={onSelect}
           onTrim={onTrim}
           onMove={onMove}
+          onCommit={onCommit}
           onRemove={onRemove}
+          onSnapGuide={onSnapGuide}
         />
       ))}
     </div>
@@ -284,19 +417,29 @@ function TrackLane({
 function ClipBlock({
   clip,
   selected,
+  allClips,
+  currentTime,
   pxPerSecond,
+  snapEnabled,
   onSelect,
   onTrim,
   onMove,
+  onCommit,
   onRemove,
+  onSnapGuide,
 }: {
   clip: Clip
   selected: boolean
+  allClips: Clip[]
+  currentTime: number
   pxPerSecond: number
+  snapEnabled: boolean
   onSelect: (id: string) => void
   onTrim: (id: string, start: number, duration: number, sourceIn: number) => void
   onMove: (id: string, start: number, track: string) => void
+  onCommit: () => void
   onRemove: (id: string) => void
+  onSnapGuide: (time: number | null) => void
 }) {
   const bars = waveform(clip.waveSeed ?? 1, Math.max(12, Math.floor(clip.duration * 6)))
   const session = useRef<{
@@ -309,6 +452,22 @@ function ClipBlock({
     sourceDuration: number
     armed: boolean
   } | null>(null)
+
+  function excludeIds() {
+    return linkedIds(allClips, clip.id)
+  }
+
+  function applySnap(start: number, duration: number) {
+    if (!snapEnabled) {
+      onSnapGuide(null)
+      return { start: snapTime(Math.max(0, start), PROJECT_FPS), snapped: null as number | null }
+    }
+    const targets = collectSnapTimes(allClips, currentTime, excludeIds())
+    const threshold = snapThresholdSeconds(pxPerSecond)
+    const snapped = snapInterval(start, duration, targets, threshold)
+    onSnapGuide(snapped.snapped)
+    return { start: snapTime(Math.max(0, snapped.start), PROJECT_FPS), snapped: snapped.snapped }
+  }
 
   function begin(kind: 'move' | 'in' | 'out', e: PointerEvent<Element>) {
     if (e.button !== 0) return
@@ -341,7 +500,8 @@ function ClipBlock({
         if (Math.abs(e.clientX - s.x) < 6) return
         s.armed = true
       }
-      onMove(clip.id, Math.max(0, s.start + dt), clip.track)
+      const snapped = applySnap(Math.max(0, s.start + dt), s.duration)
+      onMove(clip.id, snapped.start, clip.track)
       return
     }
     if (s.kind === 'in') {
@@ -359,24 +519,50 @@ function ClipBlock({
         duration += start
         start = 0
       }
-      onTrim(clip.id, start, Math.max(frame, duration), Math.max(0, sourceIn))
+      if (snapEnabled) {
+        const targets = collectSnapTimes(allClips, currentTime, excludeIds())
+        const snapped = snapToTimes(start, targets, snapThresholdSeconds(pxPerSecond))
+        const delta = snapped.time - start
+        start = snapped.time
+        duration -= delta
+        sourceIn += delta
+        if (sourceIn < 0) {
+          start -= sourceIn
+          duration += sourceIn
+          sourceIn = 0
+        }
+        onSnapGuide(snapped.snapped)
+      }
+      onTrim(clip.id, snapTime(start, PROJECT_FPS), Math.max(frame, duration), Math.max(0, sourceIn))
       return
     }
     let duration = Math.max(frame, s.duration + dt)
     if (s.sourceDuration > 0) {
       duration = Math.min(duration, Math.max(frame, s.sourceDuration - s.sourceIn))
     }
+    if (snapEnabled) {
+      const targets = collectSnapTimes(allClips, currentTime, excludeIds())
+      const snapped = snapToTimes(s.start + duration, targets, snapThresholdSeconds(pxPerSecond))
+      duration = Math.max(frame, snapped.time - s.start)
+      if (s.sourceDuration > 0) {
+        duration = Math.min(duration, Math.max(frame, s.sourceDuration - s.sourceIn))
+      }
+      onSnapGuide(snapped.snapped)
+    }
     onTrim(clip.id, s.start, duration, s.sourceIn)
   }
 
   function end(e: PointerEvent<Element>) {
     if (!session.current || session.current.pointerId !== e.pointerId) return
+    const armed = session.current.armed
     session.current = null
+    onSnapGuide(null)
     try {
       e.currentTarget.releasePointerCapture(e.pointerId)
     } catch {
       /* already released */
     }
+    if (armed) onCommit()
   }
 
   return (
@@ -409,7 +595,7 @@ function ClipBlock({
             : 'linear-gradient(180deg, #2a2418, #1b1710)',
       }}
     >
-      {clip.mediaType === 'video' && clip.src && (
+      {clip.mediaType === 'video' && clip.src && clip.kind !== 'audio' && (
         <>
           <video
             key={`${clip.src}:${clip.sourceIn ?? 0}`}
@@ -437,7 +623,8 @@ function ClipBlock({
           ))}
         </div>
       )}
-      <span className="relative z-10 truncate pr-5 pl-1.5 pt-0.5 text-[10px] font-medium text-plate drop-shadow">
+      <span className="relative z-10 flex items-center gap-1 truncate pr-5 pl-1.5 pt-0.5 text-[10px] font-medium text-plate drop-shadow">
+        {clip.linkId && <Link2 size={8} className="shrink-0 opacity-80" />}
         {clip.name}
       </span>
       {selected && (

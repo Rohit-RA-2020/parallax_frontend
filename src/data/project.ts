@@ -128,8 +128,20 @@ export const suggestions = [
   'Generate a thumbnail',
 ]
 
+export function clipsAtTime(clips: Clip[], time: number, kind?: Clip['kind']) {
+  return clips.filter((clip) => (
+    (kind == null || clip.kind === kind)
+    && time >= clip.start
+    && time < clip.start + clip.duration
+  ))
+}
+
 export function clipAtTime(clips: Clip[], time: number, kind: Clip['kind'] = 'video') {
-  return clips.find(
-    (c) => c.kind === kind && time >= c.start && time < c.start + c.duration,
-  )
+  const matches = clipsAtTime(clips, time, kind)
+  if (matches.length <= 1) return matches[0]
+  return matches.reduce((best, clip) => {
+    if (clip.start > best.start) return clip
+    if (clip.start < best.start) return best
+    return clip.id > best.id ? clip : best
+  })
 }

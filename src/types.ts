@@ -22,6 +22,7 @@ export type Clip = {
   height?: number
   color: string
   waveSeed?: number
+  linkId?: string
 }
 
 export type Track = {

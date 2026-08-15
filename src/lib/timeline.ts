@@ -17,6 +17,7 @@ export type TimelineClipRecord = {
   media_type?: 'video' | 'audio' | 'image'
   color: string
   wave_seed?: number
+  link_id?: string
 }
 
 export type TimelineDocument = {
@@ -180,6 +181,7 @@ function clipToRecord(clip: Clip, fps: number): TimelineClipRecord {
   if (clip.mediaPath) record.media_path = clip.mediaPath
   if (clip.mediaType) record.media_type = clip.mediaType
   if (clip.waveSeed) record.wave_seed = clip.waveSeed
+  if (clip.linkId) record.link_id = clip.linkId
   return record
 }
 
@@ -199,6 +201,7 @@ function clipFromRecord(record: TimelineClipRecord, fps: number): Clip {
     mediaType: record.media_type,
     color: record.color || COLOR_FOR[record.kind],
     waveSeed: record.wave_seed,
+    linkId: record.link_id,
   }
 }
 

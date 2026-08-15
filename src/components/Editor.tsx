@@ -4,8 +4,22 @@ import type { ChatMessage, Clip, Grade, MediaAsset, ToolId } from '../types'
 import {
   PROJECT_FPS,
   clipAtTime,
+  clipsAtTime,
 } from '../data/project'
-import { clipFromAsset, sequenceDuration } from '../lib/edit'
+import {
+  clipContainsTime,
+  clipsFromAsset,
+  commitMove,
+  commitTrim,
+  linkedClips,
+  linkedIds,
+  placeClips,
+  removeClips,
+  sequenceDuration,
+  splitClipsAtTime,
+  unlinkClips,
+  type EditMode,
+} from '../lib/edit'
 import {
   applySourceDuration,
   buildTimelineDocument,
@@ -60,6 +74,10 @@ export function Editor() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [clips, setClips] = useState<Clip[]>([])
   const [pxPerSecond, setPxPerSecond] = useState(24)
+  const [snapEnabled, setSnapEnabled] = useState(() => readPref('parallax.snap', '1') !== '0')
+  const [editMode, setEditMode] = useState<EditMode>(() => (
+    readPref('parallax.editMode', 'overwrite') === 'ripple' ? 'ripple' : 'overwrite'
+  ))
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
@@ -102,6 +120,14 @@ export function Editor() {
   const saveGenRef = useRef(0)
   const savingRef = useRef(false)
   const dirtyRef = useRef(false)
+  const editModeRef = useRef(editMode)
+  editModeRef.current = editMode
+  const editSessionRef = useRef<{
+    type: 'move' | 'trim'
+    ids: Set<string>
+    originStart: number
+    originDuration: number
+  } | null>(null)
 
   const refreshMedia = useCallback(async (id: string) => {
     setMediaLoading(true)
@@ -308,11 +334,73 @@ export function Editor() {
   }, [])
 
   const removeClip = useCallback((id: string) => {
-    const clip = clipsRef.current.find((c) => c.id === id)
-    if (!clip) return
-    setClips((prev) => prev.filter((c) => c.id !== id))
-    setSelectedId((cur) => (cur === id ? null : cur))
-    setToast(`Removed ${clip.name}`)
+    const group = linkedClips(clipsRef.current, id)
+    if (group.length === 0) return
+    const ids = new Set(group.map((clip) => clip.id))
+    setClips((prev) => removeClips(prev, ids, editModeRef.current, PROJECT_FPS))
+    setSelectedId((cur) => (cur && ids.has(cur) ? null : cur))
+    setToast(group.length > 1 ? `Removed ${group[0].name} and linked audio` : `Removed ${group[0].name}`)
+  }, [])
+
+  const splitAtPlayhead = useCallback(() => {
+    const time = currentTimeRef.current
+    const hits = clipsRef.current.filter((clip) => clipContainsTime(clip, time, PROJECT_FPS))
+    if (hits.length === 0) return
+    const { clips: next } = splitClipsAtTime(clipsRef.current, time, PROJECT_FPS)
+    if (next.length === clipsRef.current.length) return
+    setClips(next)
+    setToast('Split at playhead')
+  }, [])
+
+  const unlinkSelected = useCallback(() => {
+    const id = selectedIdRef.current
+    if (!id) return
+    const group = linkedClips(clipsRef.current, id)
+    if (group.length < 2) return
+    setClips((prev) => unlinkClips(prev, id))
+    setToast('Unlinked')
+  }, [])
+
+  const beginEdit = useCallback((id: string, type: 'move' | 'trim') => {
+    if (editSessionRef.current) return
+    const group = linkedClips(clipsRef.current, id)
+    const primary = group.find((clip) => clip.id === id) ?? group[0]
+    if (!primary) return
+    editSessionRef.current = {
+      type,
+      ids: new Set(group.map((clip) => clip.id)),
+      originStart: primary.start,
+      originDuration: primary.duration,
+    }
+  }, [])
+
+  const commitEdit = useCallback(() => {
+    const session = editSessionRef.current
+    editSessionRef.current = null
+    if (!session) return
+    setClips((prev) => {
+      const incoming = prev.filter((clip) => session.ids.has(clip.id))
+      if (incoming.length === 0) return prev
+      if (session.type === 'move') {
+        return commitMove(
+          prev,
+          session.ids,
+          incoming[0].start,
+          session.originStart,
+          session.originDuration,
+          editModeRef.current,
+          PROJECT_FPS,
+        )
+      }
+      return commitTrim(
+        prev,
+        incoming,
+        session.originStart,
+        session.originDuration,
+        editModeRef.current,
+        PROJECT_FPS,
+      )
+    })
   }, [])
 
   useEffect(() => {
@@ -351,6 +439,30 @@ export function Editor() {
       if (e.key === 'ArrowRight') seek(currentTime + (e.shiftKey ? 1 : 1 / PROJECT_FPS))
       if (e.key === 'Home') seek(0)
       if (e.key === 'Escape') setSelectedId(null)
+      if (e.key === 'c' || e.key === 'C' || e.key === 'b' || e.key === 'B' || ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K'))) {
+        e.preventDefault()
+        splitAtPlayhead()
+      }
+      if ((e.key === 's' || e.key === 'S') && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault()
+        setSnapEnabled((value) => {
+          const next = !value
+          writePref('parallax.snap', next ? '1' : '0')
+          return next
+        })
+      }
+      if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault()
+        setEditMode((mode) => {
+          const next = mode === 'overwrite' ? 'ripple' : 'overwrite'
+          writePref('parallax.editMode', next)
+          return next
+        })
+      }
+      if ((e.key === 'u' || e.key === 'U') && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault()
+        unlinkSelected()
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const id = selectedIdRef.current
         if (!id) return
@@ -360,7 +472,7 @@ export function Editor() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [currentTime, seek, removeClip])
+  }, [currentTime, seek, removeClip, splitAtPlayhead, unlinkSelected])
 
   useEffect(() => {
     if (!toast) return
@@ -374,7 +486,10 @@ export function Editor() {
 
   const videoClip = useMemo(() => clipAtTime(clips, currentTime, 'video'), [clips, currentTime])
   const titleClip = useMemo(() => clipAtTime(clips, currentTime, 'title'), [clips, currentTime])
+  const audioClips = useMemo(() => clipsAtTime(clips, currentTime, 'audio'), [clips, currentTime])
   const selected = clips.find((c) => c.id === selectedId)
+  const selectedIds = useMemo(() => new Set(selectedId ? linkedIds(clips, selectedId) : []), [clips, selectedId])
+  const canUnlink = selectedIds.size > 1
 
   function setToolAndPanel(id: ToolId) {
     if (id === tool && panelOpen) {
@@ -386,8 +501,10 @@ export function Editor() {
   }
 
   function trimClip(id: string, start: number, nextDuration: number, sourceIn: number) {
+    beginEdit(id, 'trim')
+    const ids = editSessionRef.current?.ids ?? new Set(linkedIds(clipsRef.current, id))
     setClips((prev) => prev.map((c) => {
-      if (c.id !== id) return c
+      if (!ids.has(c.id)) return c
       return clampClip({
         ...c,
         start,
@@ -398,9 +515,12 @@ export function Editor() {
     }))
   }
 
-  function moveClip(id: string, start: number, track: string) {
+  function moveClip(id: string, start: number, _track: string) {
+    beginEdit(id, 'move')
+    const ids = editSessionRef.current?.ids ?? new Set(linkedIds(clipsRef.current, id))
+    const nextStart = snapTime(Math.max(0, start), PROJECT_FPS)
     setClips((prev) => prev.map((c) => (
-      c.id === id ? { ...c, start: snapTime(Math.max(0, start), PROJECT_FPS), track } : c
+      ids.has(c.id) ? { ...c, start: nextStart } : c
     )))
   }
 
@@ -455,11 +575,14 @@ export function Editor() {
   }
 
   function addAsset(asset: MediaAsset, start = currentTime, track?: string) {
-    const clip = clampClip(clipFromAsset(asset, snapTime(start, PROJECT_FPS), track), PROJECT_FPS)
-    setClips((prev) => [...prev, clip])
-    setSelectedId(clip.id)
-    seek(clip.start)
-    setToast(`${clip.name} added to ${clip.track}`)
+    const incoming = clipsFromAsset(asset, snapTime(start, PROJECT_FPS), track)
+      .map((clip) => clampClip(clip, PROJECT_FPS))
+    if (incoming.length === 0) return
+    setClips((prev) => placeClips(prev, incoming, editModeRef.current, PROJECT_FPS))
+    setSelectedId(incoming[0].id)
+    seek(incoming[0].start)
+    const lanes = incoming.map((clip) => clip.track).join(' + ')
+    setToast(`${incoming[0].name} added to ${lanes}`)
   }
 
   function clock() {
@@ -713,6 +836,7 @@ export function Editor() {
             safeArea={safeArea}
             clip={videoClip}
             titleClip={titleClip}
+            audioClips={audioClips}
             grade={grade}
             duration={duration}
             onTogglePlay={() => setIsPlaying((p) => !p)}
@@ -722,17 +846,34 @@ export function Editor() {
           />
           <Timeline
             clips={clips}
-            selectedId={selectedId}
+            selectedIds={selectedIds}
             currentTime={currentTime}
             duration={duration}
             pxPerSecond={pxPerSecond}
+            snapEnabled={snapEnabled}
+            editMode={editMode}
+            canUnlink={canUnlink}
             onSelect={setSelectedId}
             onSeek={seek}
             onZoom={setPxPerSecond}
             onTrim={trimClip}
             onMove={moveClip}
+            onCommit={commitEdit}
             onRemove={removeClip}
+            onSplit={splitAtPlayhead}
             onDropAsset={(asset, start, track) => addAsset(asset, start, track)}
+            onToggleSnap={() => {
+              setSnapEnabled((value) => {
+                const next = !value
+                writePref('parallax.snap', next ? '1' : '0')
+                return next
+              })
+            }}
+            onEditMode={(mode) => {
+              setEditMode(mode)
+              writePref('parallax.editMode', mode)
+            }}
+            onUnlink={unlinkSelected}
             saveStatus={saveStatus}
           />
         </div>
@@ -943,8 +1084,20 @@ function readActiveChat(projectID: string) {
 }
 
 function writeActiveChat(projectID: string, chatID: string) {
+  writePref(activeChatKey(projectID), chatID)
+}
+
+function readPref(key: string, fallback = '') {
   try {
-    localStorage.setItem(activeChatKey(projectID), chatID)
+    return localStorage.getItem(key) ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writePref(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
   } catch {
     // ignore quota / private mode
   }

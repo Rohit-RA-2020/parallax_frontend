@@ -27,6 +27,7 @@ type Props = {
   safeArea: boolean
   clip: Clip | undefined
   titleClip: Clip | undefined
+  audioClips?: Clip[]
   grade: Grade
   duration: number
   onTogglePlay: () => void
@@ -42,6 +43,7 @@ export function PreviewStage({
   safeArea,
   clip,
   titleClip,
+  audioClips = [],
   grade,
   duration,
   onTogglePlay,
@@ -177,7 +179,7 @@ export function PreviewStage({
                 sourceIn={clip.sourceIn ?? 0}
                 currentTime={currentTime}
                 isPlaying={isPlaying}
-                muted={muted}
+                muted={muted || audioClips.length > 0}
                 filter={filter}
                 reduce={!!reduce}
                 onFrame={(width, height) => setDecoded({ width, height })}
@@ -231,6 +233,20 @@ export function PreviewStage({
               </motion.div>
             )}
           </AnimatePresence>
+
+          {audioClips.map((audio) => (
+            audio.src ? (
+              <ProgramAudio
+                key={`${audio.id}:${audio.src}`}
+                src={audio.src}
+                start={audio.start}
+                sourceIn={audio.sourceIn ?? 0}
+                currentTime={currentTime}
+                isPlaying={isPlaying}
+                muted={muted}
+              />
+            ) : null
+          ))}
 
           <div className="pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-2">
             <motion.span
@@ -435,6 +451,98 @@ function PreviewVideo({
         style={{ filter }}
       />
     </motion.div>
+  )
+}
+
+function ProgramAudio({
+  src,
+  start,
+  sourceIn,
+  currentTime,
+  isPlaying,
+  muted,
+}: {
+  src: string
+  start: number
+  sourceIn: number
+  currentTime: number
+  isPlaying: boolean
+  muted: boolean
+}) {
+  const audioRef = useRef<HTMLVideoElement>(null)
+  const currentTimeRef = useRef(currentTime)
+  const isPlayingRef = useRef(isPlaying)
+  currentTimeRef.current = currentTime
+  isPlayingRef.current = isPlaying
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+    let cancelled = false
+
+    const seekToClock = () => {
+      if (cancelled || audio.readyState < HTMLMediaElement.HAVE_METADATA) return
+      const localTime = clipSourceTime({ start, sourceIn }, currentTimeRef.current)
+      const duration = Number.isFinite(audio.duration) ? audio.duration : 0
+      const next = duration > 0 ? Math.min(localTime, Math.max(0, duration - 0.001)) : localTime
+      if (Math.abs(audio.currentTime - next) > 0.04) {
+        audio.currentTime = next
+      }
+    }
+
+    const onReady = () => {
+      if (cancelled) return
+      seekToClock()
+      if (isPlayingRef.current) {
+        void audio.play().catch(() => undefined)
+      } else {
+        audio.pause()
+      }
+    }
+
+    const onCanPlay = () => {
+      if (cancelled || !isPlayingRef.current || !audio.paused) return
+      void audio.play().catch(() => undefined)
+    }
+
+    audio.addEventListener('loadedmetadata', onReady)
+    audio.addEventListener('canplay', onCanPlay)
+    audio.load()
+
+    return () => {
+      cancelled = true
+      audio.removeEventListener('loadedmetadata', onReady)
+      audio.removeEventListener('canplay', onCanPlay)
+      audio.pause()
+    }
+  }, [src, start, sourceIn])
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || audio.readyState < HTMLMediaElement.HAVE_METADATA) return
+    const localTime = clipSourceTime({ start, sourceIn }, currentTime)
+    if (!isPlaying || Math.abs(audio.currentTime - localTime) > 0.5) {
+      audio.currentTime = Math.min(localTime, Number.isFinite(audio.duration) ? audio.duration : localTime)
+    }
+  }, [currentTime, isPlaying, start, sourceIn])
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || audio.readyState < HTMLMediaElement.HAVE_METADATA) return
+    if (isPlaying) void audio.play().catch(() => undefined)
+    else audio.pause()
+  }, [isPlaying])
+
+  return (
+    <video
+      ref={audioRef}
+      src={src}
+      muted={muted}
+      playsInline
+      preload="auto"
+      className="pointer-events-none absolute h-0 w-0 opacity-0"
+      aria-hidden
+    />
   )
 }
 
