@@ -18,6 +18,49 @@
   --color-live: #d6f04b;
   --color-audio: #3d8f72;
   --color-title: #c4a36a;
+  --color-wash: rgb(255 255 255 / 0.05);
+  --color-wash-strong: rgb(255 255 255 / 0.08);
+  --color-tick: rgb(255 255 255 / 0.1);
+  --color-plate: #f3efe6;
+}
+
+:root,
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --preview-ring: rgb(255 255 255 / 0.06);
+  --preview-glow: rgb(0 0 0 / 0.55);
+  --toast-shadow: 0 16px 40px rgb(0 0 0 / 0.45);
+  --scrollbar: rgb(255 255 255 / 0.12);
+  --scrollbar-hover: rgb(255 255 255 / 0.2);
+  --selection: rgb(214 240 75 / 0.28);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-ink: #f0ece3;
+  --color-void: #e2dcd0;
+  --color-panel: #f7f4ed;
+  --color-lift: #fffcf6;
+  --color-well: #e8e2d6;
+  --color-line: rgb(32 26 16 / 0.09);
+  --color-line-strong: rgb(32 26 16 / 0.15);
+  --color-cream: #1c1b17;
+  --color-mute: #5e5a52;
+  --color-dim: #8c877c;
+  --color-mark: #e0342a;
+  --color-live: #6a8612;
+  --color-audio: #2a7460;
+  --color-title: #9a7840;
+  --color-wash: rgb(32 26 16 / 0.05);
+  --color-wash-strong: rgb(32 26 16 / 0.085);
+  --color-tick: rgb(32 26 16 / 0.14);
+  --color-plate: #f3efe6;
+  --preview-ring: rgb(32 26 16 / 0.1);
+  --preview-glow: rgb(48 36 16 / 0.18);
+  --toast-shadow: 0 14px 36px rgb(40 32 16 / 0.14);
+  --scrollbar: rgb(32 26 16 / 0.18);
+  --scrollbar-hover: rgb(32 26 16 / 0.28);
+  --selection: rgb(106 134 18 / 0.28);
 }
 
 html,
@@ -28,7 +71,7 @@ body,
 }
 
 html {
-  color-scheme: dark;
+  background: var(--color-ink);
 }
 
 body {
@@ -47,13 +90,13 @@ textarea {
 }
 
 ::selection {
-  background: rgb(214 240 75 / 0.28);
+  background: var(--selection);
   color: var(--color-cream);
 }
 
 .scroll-thin {
   scrollbar-width: thin;
-  scrollbar-color: rgb(255 255 255 / 0.12) transparent;
+  scrollbar-color: var(--scrollbar) transparent;
 }
 
 .scroll-thin::-webkit-scrollbar {
@@ -62,12 +105,12 @@ textarea {
 }
 
 .scroll-thin::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 0.12);
+  background: var(--scrollbar);
   border-radius: 999px;
 }
 
 .scroll-thin::-webkit-scrollbar-thumb:hover {
-  background: rgb(255 255 255 / 0.2);
+  background: var(--scrollbar-hover);
 }
 
 .grain {
@@ -92,8 +135,17 @@ textarea {
   transition: filter 0.85s ease;
 }
 
+.chrome {
+  transition:
+    background-color 0.28s ease,
+    color 0.28s ease,
+    border-color 0.28s ease,
+    box-shadow 0.28s ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .preview-plate {
+  .preview-plate,
+  .chrome {
     transition: none;
   }
 }

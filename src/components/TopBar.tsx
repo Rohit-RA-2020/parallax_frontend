@@ -2,6 +2,7 @@ import { Download, Redo2, Share, Undo2 } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { PROJECT_FPS, PROJECT_NAME, PROJECT_RES } from '../data/project'
 import { softSpring } from '../lib/motion'
+import { ThemeToggle } from './ThemeToggle'
 import { IconButton, Logo, Pill } from './ui'
 
 type Props = {
@@ -11,7 +12,7 @@ type Props = {
 export function TopBar({ onExport }: Props) {
   const reduce = useReducedMotion()
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between border-b border-line bg-panel px-3">
+    <header className="chrome flex h-12 shrink-0 items-center justify-between border-b border-line bg-panel px-3">
       <div className="flex min-w-0 items-center gap-5">
         <Logo />
         <div className="hidden h-4 w-px bg-line-strong sm:block" />
@@ -31,6 +32,7 @@ export function TopBar({ onExport }: Props) {
       </div>
 
       <div className="flex items-center gap-2">
+        <ThemeToggle />
         <div className="mr-1 hidden items-center gap-2 text-[11px] text-mute md:flex">
           <span className="font-mono">{PROJECT_FPS} fps</span>
           <span className="text-dim">/</span>
@@ -41,7 +43,7 @@ export function TopBar({ onExport }: Props) {
           whileHover={reduce ? undefined : { y: -1 }}
           whileTap={reduce ? undefined : { scale: 0.97 }}
           transition={softSpring}
-          className="hidden h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] text-mute transition-colors hover:bg-white/5 hover:text-cream sm:inline-flex"
+          className="hidden h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] text-mute transition-colors hover:bg-wash hover:text-cream sm:inline-flex"
         >
           <Share size={13} />
           Share

@@ -77,7 +77,7 @@ export function PreviewStage({
   }
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-void">
+    <section className="chrome flex min-h-0 min-w-0 flex-1 flex-col bg-void">
       <div className="flex h-10 shrink-0 items-center justify-between px-4">
         <div className="flex items-center gap-2 text-[11px] text-mute">
           <span className="text-cream">{clip?.name ?? 'Gap'}</span>
@@ -102,7 +102,7 @@ export function PreviewStage({
       >
         <Atmosphere playing={isPlaying} />
         <motion.div
-          className="relative z-10 aspect-video h-full max-h-full w-auto max-w-full overflow-hidden rounded-sm bg-black shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_30px_80px_rgba(0,0,0,0.55)]"
+          className="relative z-10 aspect-video h-full max-h-full w-auto max-w-full overflow-hidden rounded-sm bg-black shadow-[0_0_0_1px_var(--preview-ring),0_30px_80px_var(--preview-glow)]"
           style={
             reduce
               ? undefined
@@ -152,8 +152,8 @@ export function PreviewStage({
                 transition={fadeSlow}
                 className="pointer-events-none absolute inset-x-8 bottom-8"
               >
-                <div className="text-[10px] tracking-[0.42em] text-cream/70 uppercase">A film</div>
-                <div className="mt-1 font-medium tracking-[0.28em] text-cream uppercase">
+                <div className="text-[10px] tracking-[0.42em] text-plate/70 uppercase">A film</div>
+                <div className="mt-1 font-medium tracking-[0.28em] text-plate uppercase">
                   {titleClip.name}
                 </div>
               </motion.div>
@@ -221,7 +221,7 @@ export function PreviewStage({
           <span className="text-dim"> / {formatTimecode(duration, PROJECT_FPS)}</span>
         </div>
 
-        <div className="relative h-1 min-w-0 flex-1 rounded-full bg-white/8">
+        <div className="relative h-1 min-w-0 flex-1 rounded-full bg-wash-strong">
           <div
             className="absolute inset-y-0 left-0 rounded-full bg-cream/80"
             style={{ width: `${progress * 100}%` }}
@@ -250,7 +250,7 @@ export function PreviewStage({
 
 function ClipInspector({ clip }: { clip: Clip | undefined }) {
   return (
-    <div className="flex h-9 shrink-0 items-center gap-5 border-t border-line px-4 text-[11px]">
+    <div className="chrome flex h-9 shrink-0 items-center gap-5 border-t border-line px-4 text-[11px]">
       <span className="w-28 truncate text-mute">{clip?.name ?? 'No selection under playhead'}</span>
       {clip && (
         <>

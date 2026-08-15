@@ -20,7 +20,7 @@ type Props = {
 export function ToolRail({ tool, onChange }: Props) {
   const reduce = useReducedMotion()
   return (
-    <nav className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-line bg-panel py-2.5">
+    <nav className="chrome flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-line bg-panel py-2.5">
       {tools.map((t) => {
         const Icon = t.icon
         const active = tool === t.id
@@ -42,7 +42,7 @@ export function ToolRail({ tool, onChange }: Props) {
             {active && (
               <motion.span
                 layoutId="tool-active"
-                className="absolute inset-0 rounded-lg bg-white/[0.07]"
+                className="absolute inset-0 rounded-lg bg-wash-strong"
                 transition={reduce ? { duration: 0 } : softSpring}
               />
             )}

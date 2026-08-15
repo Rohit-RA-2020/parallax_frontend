@@ -4,12 +4,14 @@ import {
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
+  NormalBlending,
   PerspectiveCamera,
   Points,
   PointsMaterial,
   Scene,
   WebGLRenderer,
 } from 'three'
+import { useThemeStore, type Theme } from '../store/theme'
 
 type Props = {
   playing: boolean
@@ -20,7 +22,10 @@ const COUNT = 120
 export function Atmosphere({ playing }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const playingRef = useRef(playing)
+  const theme = useThemeStore((s) => s.theme)
+  const themeRef = useRef(theme)
   playingRef.current = playing
+  themeRef.current = theme
 
   useEffect(() => {
     const el = host.current
@@ -93,6 +98,7 @@ export function Atmosphere({ playing }: Props) {
     })
     const bloom = new Points(bloomGeo, bloomMat)
     scene.add(bloom)
+    paintAtmosphere(mat, bloomMat, themeRef.current, playingRef.current)
 
     const mouse = { x: 0, y: 0 }
     const target = { x: 0, y: 0 }
@@ -156,8 +162,7 @@ export function Atmosphere({ playing }: Props) {
       camera.position.y = mouse.y * 0.09
       camera.lookAt(0, 0, 0)
 
-      mat.opacity = live ? 0.5 : 0.34
-      bloomMat.opacity = live ? 0.16 : 0.1
+      paintAtmosphere(mat, bloomMat, themeRef.current, live)
       renderer.render(scene, camera)
     }
     raf = requestAnimationFrame(tick)
@@ -177,6 +182,31 @@ export function Atmosphere({ playing }: Props) {
   }, [])
 
   return <div ref={host} className="pointer-events-none absolute inset-0 z-[1]" aria-hidden />
+}
+
+function paintAtmosphere(
+  mat: PointsMaterial,
+  bloomMat: PointsMaterial,
+  theme: Theme,
+  live: boolean,
+) {
+  if (theme === 'light') {
+    mat.color.setHex(0x2c281f)
+    mat.blending = NormalBlending
+    mat.opacity = live ? 0.26 : 0.16
+    bloomMat.color.setHex(0x3d372c)
+    bloomMat.blending = NormalBlending
+    bloomMat.opacity = live ? 0.1 : 0.055
+  } else {
+    mat.color.setHex(0xf3efe6)
+    mat.blending = AdditiveBlending
+    mat.opacity = live ? 0.5 : 0.34
+    bloomMat.color.setHex(0xe8dcc4)
+    bloomMat.blending = AdditiveBlending
+    bloomMat.opacity = live ? 0.16 : 0.1
+  }
+  mat.needsUpdate = true
+  bloomMat.needsUpdate = true
 }
 
 function makeSprite() {

@@ -54,7 +54,7 @@ export function MediaPanel({ tool, onAdd }: Props) {
             : 'Media'
 
   return (
-    <aside className="flex h-full w-[268px] shrink-0 flex-col border-r border-line bg-well">
+    <aside className="chrome flex h-full w-[268px] shrink-0 flex-col border-r border-line bg-well">
       <div className="flex h-11 items-center justify-between px-3">
         <h2 className="text-[11px] font-medium tracking-[0.16em] text-mute uppercase">
           <AnimatePresence mode="wait" initial={false}>
@@ -100,7 +100,7 @@ export function MediaPanel({ tool, onAdd }: Props) {
                   onClick={() => setTab(t.id)}
                   className={cn(
                     'rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase',
-                    tab === t.id ? 'bg-white/8 text-cream' : 'text-dim hover:text-mute',
+                    tab === t.id ? 'bg-wash-strong text-cream' : 'text-dim hover:text-mute',
                   )}
                 >
                   {t.label}
@@ -143,10 +143,10 @@ export function MediaPanel({ tool, onAdd }: Props) {
                         {asset.kind === 'audio' ? <Music2 size={16} /> : <Type size={16} />}
                       </div>
                     )}
-                    <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[9px] text-cream/0 transition-colors group-hover:text-cream">
+                    <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[9px] text-plate/0 transition-colors group-hover:text-plate">
                       Add
                     </span>
-                    <span className="absolute right-1 bottom-1 rounded bg-black/70 px-1 font-mono text-[9px] text-cream">
+                    <span className="absolute right-1 bottom-1 rounded bg-black/70 px-1 font-mono text-[9px] text-plate">
                       {formatClock(asset.duration)}
                     </span>
                   </div>

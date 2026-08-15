@@ -29,7 +29,7 @@ export function Logo({ className }: { className?: string }) {
           width="11.2"
           height="7.4"
           rx="1"
-          stroke="#ff4336"
+          stroke="var(--color-mark)"
           strokeWidth="1.2"
           variants={{ hover: { x: 0.5, y: 0.35 } }}
           transition={softSpring}
@@ -66,8 +66,8 @@ export function IconButton({
       whileTap={reduce ? undefined : { scale: 0.92 }}
       transition={softSpring}
       className={cn(
-        'grid size-8 place-items-center rounded-md text-mute transition-colors hover:bg-white/5 hover:text-cream disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-mute',
-        active && 'bg-white/[0.07] text-cream',
+        'grid size-8 place-items-center rounded-md text-mute transition-colors hover:bg-wash hover:text-cream disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-mute',
+        active && 'bg-wash-strong text-cream',
         className,
       )}
       {...props}

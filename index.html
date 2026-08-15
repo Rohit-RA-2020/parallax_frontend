@@ -6,6 +6,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#09090a" />
     <title>Parallax</title>
+    <script>
+      (function () {
+        try {
+          var theme = 'dark'
+          var raw = localStorage.getItem('parallax-theme')
+          if (raw) {
+            var data = JSON.parse(raw)
+            var stored = data && data.state && data.state.theme
+            if (stored === 'light' || stored === 'dark') theme = stored
+          }
+          document.documentElement.dataset.theme = theme
+          document.documentElement.style.colorScheme = theme
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.setAttribute('content', theme === 'light' ? '#f0ece3' : '#09090a')
+        } catch (e) {}
+      })()
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

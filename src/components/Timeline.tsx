@@ -103,7 +103,7 @@ export function Timeline({
   }
 
   return (
-    <div className="flex h-[248px] shrink-0 flex-col border-t border-line bg-panel">
+    <div className="chrome flex h-[248px] shrink-0 flex-col border-t border-line bg-panel">
       <div className="flex h-8 shrink-0 items-center justify-between border-b border-line px-3">
         <span className="text-[10px] font-medium tracking-[0.16em] text-mute uppercase">Timeline</span>
         <div className="flex items-center gap-3">
@@ -138,7 +138,7 @@ export function Timeline({
       >
         <div className="relative" style={{ width: HEADER + contentW, minHeight: '100%' }}>
           <div
-            className="sticky top-0 z-20 border-b border-line bg-panel"
+            className="chrome sticky top-0 z-20 border-b border-line bg-panel"
             style={{ height: RULER }}
           >
             <div className="absolute inset-y-0 left-0 flex w-[72px] items-center px-3 text-[9px] tracking-wider text-dim uppercase">
@@ -150,7 +150,7 @@ export function Timeline({
                 className="absolute top-0 bottom-0"
                 style={{ left: HEADER + t.time * pxPerSecond }}
               >
-                <div className={cn('w-px bg-white/10', t.major ? 'h-3' : 'h-1.5')} />
+                <div className={cn('w-px bg-tick', t.major ? 'h-3' : 'h-1.5')} />
                 {t.major && (
                   <div className="mt-0.5 font-mono text-[9px] text-dim">{formatClock(t.time)}</div>
                 )}
@@ -232,7 +232,7 @@ function TrackLane({
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <div className="sticky left-0 z-10 flex h-full w-[72px] items-center gap-1.5 border-r border-line bg-panel px-2">
+      <div className="chrome sticky left-0 z-10 flex h-full w-[72px] items-center gap-1.5 border-r border-line bg-panel px-2">
         <span className="w-6 font-mono text-[10px] text-mute">{track.label}</span>
         <span className="text-dim">
           {track.kind === 'audio' ? (
@@ -368,7 +368,7 @@ function ClipBlock({
       }}
       className={cn(
         'absolute top-1.5 bottom-1.5 overflow-hidden rounded-[4px] text-left',
-        selected ? 'z-10 cursor-grab ring-1 ring-cream active:cursor-grabbing' : 'ring-1 ring-white/10',
+        selected ? 'z-10 cursor-grab ring-1 ring-cream active:cursor-grabbing' : 'ring-1 ring-tick',
       )}
       style={{
         left: HEADER + clip.start * pxPerSecond,
@@ -391,7 +391,7 @@ function ClipBlock({
           ))}
         </div>
       )}
-      <span className="relative z-10 truncate pr-5 pl-1.5 pt-0.5 text-[10px] font-medium text-cream drop-shadow">
+      <span className="relative z-10 truncate pr-5 pl-1.5 pt-0.5 text-[10px] font-medium text-plate drop-shadow">
         {clip.name}
       </span>
       {selected && (
@@ -405,7 +405,7 @@ function ClipBlock({
               e.stopPropagation()
               onRemove(clip.id)
             }}
-            className="absolute top-0.5 right-0.5 z-20 grid size-4 place-items-center rounded-sm bg-black/55 text-cream/80 hover:bg-mark hover:text-cream"
+            className="absolute top-0.5 right-0.5 z-20 grid size-4 place-items-center rounded-sm bg-black/55 text-plate/80 hover:bg-mark hover:text-plate"
           >
             <X size={9} />
           </button>
@@ -415,7 +415,7 @@ function ClipBlock({
             onPointerMove={drag}
             onPointerUp={end}
             onPointerCancel={end}
-            className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-ew-resize bg-cream/80"
+            className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-ew-resize bg-plate/80"
           />
           <span
             data-clip
@@ -423,7 +423,7 @@ function ClipBlock({
             onPointerMove={drag}
             onPointerUp={end}
             onPointerCancel={end}
-            className="absolute inset-y-0 right-0 z-20 w-1.5 cursor-ew-resize bg-cream/80"
+            className="absolute inset-y-0 right-0 z-20 w-1.5 cursor-ew-resize bg-plate/80"
           />
         </>
       )}

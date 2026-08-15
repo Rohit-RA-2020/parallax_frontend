@@ -46,7 +46,7 @@ export function ChatPanel({
   }
 
   return (
-    <aside className="flex h-full w-[360px] shrink-0 flex-col border-l border-line bg-panel">
+    <aside className="chrome flex h-full w-[360px] shrink-0 flex-col border-l border-line bg-panel">
       <div className="flex h-12 items-center justify-between border-b border-line px-4">
         <div className="flex items-center gap-2.5">
           <span className="relative grid size-6 place-items-center rounded-full border border-live/30">
@@ -68,7 +68,7 @@ export function ChatPanel({
           whileHover={reduce ? undefined : { scale: 1.06 }}
           whileTap={reduce ? undefined : { scale: 0.92 }}
           transition={softSpring}
-          className="grid size-8 place-items-center rounded-md text-mute hover:bg-white/5 hover:text-cream"
+          className="grid size-8 place-items-center rounded-md text-mute hover:bg-wash hover:text-cream"
         >
           <PanelRightClose size={15} />
         </motion.button>
@@ -155,7 +155,7 @@ export function ChatPanel({
             whileHover={reduce || !draft.trim() ? undefined : { scale: 1.05 }}
             whileTap={reduce || !draft.trim() ? undefined : { scale: 0.92 }}
             transition={softSpring}
-            className="absolute right-2 bottom-2 grid size-7 place-items-center rounded-md bg-cream text-ink disabled:bg-white/10 disabled:text-dim"
+            className="absolute right-2 bottom-2 grid size-7 place-items-center rounded-md bg-cream text-ink disabled:bg-cream/15 disabled:text-dim"
           >
             <ArrowUp size={14} />
           </motion.button>
@@ -182,7 +182,7 @@ function Message({ message, reduce }: { message: ChatMessage; reduce: boolean })
         className={cn(
           'max-w-[92%] text-[13px] leading-relaxed',
           mine
-            ? 'rounded-lg rounded-tr-sm bg-lift px-3 py-2 text-cream'
+            ? 'rounded-lg rounded-tr-sm border border-line bg-lift px-3 py-2 text-cream'
             : 'text-mute',
         )}
       >
@@ -198,8 +198,7 @@ export function ChatRail({ onOpen }: { onOpen: () => void }) {
     <motion.button
       type="button"
       onClick={onOpen}
-      whileHover={reduce ? undefined : { backgroundColor: 'rgba(255,255,255,0.02)' }}
-      className="flex w-11 shrink-0 flex-col items-center gap-3 border-l border-line bg-panel py-4 text-mute hover:text-cream"
+      className="chrome flex w-11 shrink-0 flex-col items-center gap-3 border-l border-line bg-panel py-4 text-mute transition-colors hover:bg-wash hover:text-cream"
       aria-label="Open Director"
     >
       <motion.span

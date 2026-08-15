@@ -168,7 +168,7 @@ export function Editor() {
 
   return (
     <LayoutGroup>
-    <div className="relative flex h-full min-w-[1100px] flex-col bg-ink text-cream">
+    <div className="chrome relative flex h-full min-w-[1100px] flex-col bg-ink text-cream">
       <TopBar onExport={() => setToast('Export is waiting on the backend — visuals only for now.')} />
 
       <div className="flex min-h-0 flex-1">
@@ -261,7 +261,7 @@ export function Editor() {
             animate={{ opacity: 1, y: 0, x: '-50%' }}
             exit={reduce ? undefined : { opacity: 0, y: 8, x: '-50%' }}
             transition={fade}
-            className="pointer-events-none absolute bottom-6 left-1/2 z-50 rounded-full border border-line bg-lift px-4 py-2 text-[12px] text-cream shadow-lg"
+            className="pointer-events-none absolute bottom-6 left-1/2 z-50 rounded-full border border-line bg-lift px-4 py-2 text-[12px] text-cream shadow-[var(--toast-shadow)]"
           >
             {toast}
           </motion.div>
