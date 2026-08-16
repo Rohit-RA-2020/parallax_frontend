@@ -5,7 +5,7 @@ import { formatClock } from '../lib/time'
 import { cn } from '../lib/cn'
 import { fade } from '../lib/motion'
 import { ASSET_MIME, setDraggingAsset } from '../lib/edit'
-import type { MediaAsset, MediaKind, ToolId } from '../types'
+import type { MediaAsset, MediaIndexState, MediaKind, ToolId } from '../types'
 
 const tabs: { id: MediaKind | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -184,6 +184,7 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
                       <span className="absolute right-1 bottom-1 rounded bg-black/70 px-1 font-mono text-[9px] text-plate">
                         {formatClock(asset.duration)}
                       </span>
+                      <IndexBadge state={asset.indexState} error={asset.indexError} />
                     </div>
                     <div className="mt-1.5 truncate pr-6 text-[11px] text-mute transition-colors group-hover:text-cream">
                       {asset.name}
@@ -210,6 +211,38 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
         </>
       )}
     </aside>
+  )
+}
+
+function IndexBadge({ state, error }: { state?: MediaIndexState; error?: string }) {
+  if (!state || state === 'skipped') return null
+  const busy = state === 'queued' || state === 'transcribing' || state === 'translating' || state === 'indexing'
+  const label =
+    state === 'queued' ? 'Queued'
+      : state === 'transcribing' ? 'Transcribing'
+        : state === 'translating' ? 'Translating'
+          : state === 'indexing' ? 'Indexing'
+            : state === 'failed' ? 'Failed'
+              : ''
+  const title =
+    state === 'ready' ? 'Transcript ready'
+      : state === 'failed' ? (error || 'Transcription failed')
+        : label
+  return (
+    <span
+      title={title}
+      className="absolute bottom-1 left-1 flex max-w-[70%] items-center gap-1 rounded bg-black/70 px-1 py-px text-[9px] leading-none text-plate"
+    >
+      <span
+        className={cn(
+          'size-1.5 shrink-0 rounded-full',
+          busy && 'animate-pulse bg-live',
+          state === 'ready' && 'bg-audio',
+          state === 'failed' && 'bg-mark',
+        )}
+      />
+      {label ? <span className="truncate text-plate/90">{label}</span> : null}
+    </span>
   )
 }
 

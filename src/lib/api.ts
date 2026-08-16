@@ -10,6 +10,23 @@ export type ProjectRecord = {
   media_count: number
 }
 
+export type TranscriptIndexState =
+  | 'queued'
+  | 'transcribing'
+  | 'translating'
+  | 'indexing'
+  | 'ready'
+  | 'failed'
+  | 'skipped'
+
+export type TranscriptIndexStatus = {
+  path: string
+  state: TranscriptIndexState
+  hash?: string
+  error?: string
+  updated_at: string
+}
+
 export type ProjectMedia = {
   id: string
   name: string
@@ -22,6 +39,7 @@ export type ProjectMedia = {
   width?: number
   height?: number
   modified_at: string
+  transcript?: TranscriptIndexStatus
 }
 
 export type ChatRecord = {

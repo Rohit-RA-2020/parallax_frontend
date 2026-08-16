@@ -51,6 +51,15 @@ export type Track = {
   muted?: boolean
 }
 
+export type MediaIndexState =
+  | 'queued'
+  | 'transcribing'
+  | 'translating'
+  | 'indexing'
+  | 'ready'
+  | 'failed'
+  | 'skipped'
+
 export type MediaAsset = {
   id: string
   name: string
@@ -62,6 +71,8 @@ export type MediaAsset = {
   mediaType?: 'video' | 'audio' | 'image'
   width?: number
   height?: number
+  indexState?: MediaIndexState
+  indexError?: string
 }
 
 export type ChatRole = 'user' | 'assistant'

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion'
-import type { ChatMessage, Clip, DirectorActivity, Grade, MediaAsset, ToolId } from '../types'
+import type { ChatMessage, Clip, DirectorActivity, Grade, MediaAsset, MediaIndexState, ToolId } from '../types'
 import {
   PROJECT_FPS,
 } from '../data/project'
@@ -226,8 +226,8 @@ export function Editor() {
     originDuration: number
   } | null>(null)
 
-  const refreshMedia = useCallback(async (id: string) => {
-    setMediaLoading(true)
+  const refreshMedia = useCallback(async (id: string, opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setMediaLoading(true)
     try {
       const items = await listProjectMedia(id)
       if (projectIdRef.current !== id) return
@@ -244,10 +244,10 @@ export function Editor() {
       setClips((current) => syncClipMedia(current, next))
       return next
     } catch (error) {
-      setToast(errorMessage(error))
+      if (!opts?.silent) setToast(errorMessage(error))
       return undefined
     } finally {
-      setMediaLoading(false)
+      if (!opts?.silent) setMediaLoading(false)
     }
   }, [])
 
@@ -420,6 +420,14 @@ export function Editor() {
       })
     return () => { live = false }
   }, [bootProject, loadChats])
+
+  useEffect(() => {
+    if (!projectId || !assets.some((asset) => indexBusy(asset.indexState))) return
+    const timer = window.setInterval(() => {
+      void refreshMedia(projectId, { silent: true })
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [assets, projectId, refreshMedia])
 
   useEffect(() => {
     let live = true
@@ -1382,6 +1390,8 @@ function numberValue(value: unknown): number | null {
 function toolLabel(name: string) {
   const labels: Record<string, string> = {
     search_web: 'Searching the web',
+    search_transcript: 'Searching the transcript',
+    get_transcript: 'Reading the transcript',
     list_workspace: 'Inspecting workspace files',
     inspect_file: 'Inspecting file metadata',
     probe_media: 'Probing media streams',
@@ -1414,7 +1424,15 @@ function toMediaAsset(item: ProjectMedia): MediaAsset {
     mediaType,
     width: item.width && item.width > 0 ? item.width : undefined,
     height: item.height && item.height > 0 ? item.height : undefined,
+    indexState: item.transcript?.state,
+    indexError: item.transcript?.error,
   }
+}
+
+const INDEX_BUSY: MediaIndexState[] = ['queued', 'transcribing', 'translating', 'indexing']
+
+function indexBusy(state?: MediaIndexState) {
+  return Boolean(state && INDEX_BUSY.includes(state))
 }
 
 function toUiMessages(messages: SavedChatMessage[]): ChatMessage[] {
