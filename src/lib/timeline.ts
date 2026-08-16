@@ -245,7 +245,12 @@ function transformFromRecord(value?: SnakeTransform): TimelineTransform | undefi
 
 export function findClipAsset(clip: Pick<Clip, 'mediaPath' | 'src'>, assets: MediaAsset[]) {
   if (clip.mediaPath) {
-    const byPath = assets.find((asset) => asset.path === clip.mediaPath)
+    const want = normalizeMediaPath(clip.mediaPath)
+    const byPath = assets.find((asset) => {
+      if (!asset.path) return false
+      const have = normalizeMediaPath(asset.path)
+      return have === want || have.endsWith(`/${want}`) || want.endsWith(`/${have}`)
+    })
     if (byPath) return byPath
   }
   if (clip.src) {
@@ -253,6 +258,10 @@ export function findClipAsset(clip: Pick<Clip, 'mediaPath' | 'src'>, assets: Med
     return assets.find((asset) => asset.src && stripQuery(asset.src) === want)
   }
   return undefined
+}
+
+function normalizeMediaPath(path: string) {
+  return path.replace(/\\/g, '/').replace(/^\.\//, '')
 }
 
 function stripQuery(url: string) {

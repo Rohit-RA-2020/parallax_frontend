@@ -232,6 +232,22 @@ export function PreviewStage({
                 className="preview-plate absolute inset-0 size-full object-contain"
                 style={{ filter: pictureFilter, ...pictureStyle }}
               />
+            ) : program.video ? (
+              <motion.div
+                key={program.video.clip.id}
+                initial={reduce ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={reduce ? undefined : { opacity: 0 }}
+                transition={fadeSlow}
+                className="absolute inset-0 grid place-items-center bg-black px-6 text-center"
+              >
+                <div>
+                  <div className="text-[13px] text-cream">{program.video.clip.name}</div>
+                  <div className="mt-1 text-[11px] text-mute">
+                    {program.video.clip.mediaPath ? 'Media is on the timeline but the preview file is unavailable' : 'No media attached'}
+                  </div>
+                </div>
+              </motion.div>
             ) : null}
           </AnimatePresence>
 
