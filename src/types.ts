@@ -57,6 +57,7 @@ export type MediaIndexState =
   | 'translating'
   | 'indexing'
   | 'ready'
+  | 'index_failed'
   | 'failed'
   | 'skipped'
 
@@ -73,6 +74,7 @@ export type MediaAsset = {
   height?: number
   indexState?: MediaIndexState
   indexError?: string
+  indexProgress?: string
 }
 
 export type ChatRole = 'user' | 'assistant'

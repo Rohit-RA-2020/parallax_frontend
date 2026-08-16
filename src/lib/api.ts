@@ -16,6 +16,7 @@ export type TranscriptIndexState =
   | 'translating'
   | 'indexing'
   | 'ready'
+  | 'index_failed'
   | 'failed'
   | 'skipped'
 
@@ -24,6 +25,9 @@ export type TranscriptIndexStatus = {
   state: TranscriptIndexState
   hash?: string
   error?: string
+  progress?: string
+  at?: number
+  duration?: number
   updated_at: string
 }
 

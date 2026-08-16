@@ -1426,6 +1426,7 @@ function toMediaAsset(item: ProjectMedia): MediaAsset {
     height: item.height && item.height > 0 ? item.height : undefined,
     indexState: item.transcript?.state,
     indexError: item.transcript?.error,
+    indexProgress: item.transcript?.progress,
   }
 }
 

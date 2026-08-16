@@ -184,7 +184,7 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
                       <span className="absolute right-1 bottom-1 rounded bg-black/70 px-1 font-mono text-[9px] text-plate">
                         {formatClock(asset.duration)}
                       </span>
-                      <IndexBadge state={asset.indexState} error={asset.indexError} />
+                      <IndexBadge state={asset.indexState} error={asset.indexError} progress={asset.indexProgress} />
                     </div>
                     <div className="mt-1.5 truncate pr-6 text-[11px] text-mute transition-colors group-hover:text-cream">
                       {asset.name}
@@ -214,20 +214,23 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
   )
 }
 
-function IndexBadge({ state, error }: { state?: MediaIndexState; error?: string }) {
+function IndexBadge({ state, error, progress }: { state?: MediaIndexState; error?: string; progress?: string }) {
   if (!state || state === 'skipped') return null
   const busy = state === 'queued' || state === 'transcribing' || state === 'translating' || state === 'indexing'
   const label =
     state === 'queued' ? 'Queued'
-      : state === 'transcribing' ? 'Transcribing'
+      : state === 'transcribing' ? (progress || 'Transcribing')
         : state === 'translating' ? 'Translating'
           : state === 'indexing' ? 'Indexing'
-            : state === 'failed' ? 'Failed'
-              : ''
+            : state === 'index_failed' ? 'Index failed'
+              : state === 'failed' ? 'Failed'
+                : ''
   const title =
     state === 'ready' ? 'Transcript ready'
       : state === 'failed' ? (error || 'Transcription failed')
-        : label
+        : state === 'index_failed' ? (error || 'Transcript saved; search index failed')
+          : progress && state === 'transcribing' ? `Transcribing ${progress}`
+            : label
   return (
     <span
       title={title}
@@ -238,6 +241,7 @@ function IndexBadge({ state, error }: { state?: MediaIndexState; error?: string 
           'size-1.5 shrink-0 rounded-full',
           busy && 'animate-pulse bg-live',
           state === 'ready' && 'bg-audio',
+          state === 'index_failed' && 'bg-title',
           state === 'failed' && 'bg-mark',
         )}
       />
