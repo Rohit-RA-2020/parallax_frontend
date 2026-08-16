@@ -174,7 +174,7 @@ function inline(text: string): ReactNode[] {
     } else if (token.startsWith('**')) {
       nodes.push(
         <strong key={`strong-${match.index}`} className="font-semibold text-cream">
-          {token.slice(2, -2)}
+          {inline(token.slice(2, -2))}
         </strong>,
       )
     } else if (match[2] && match[3]) {
