@@ -1392,6 +1392,7 @@ function toolLabel(name: string) {
     search_web: 'Searching the web',
     search_transcript: 'Searching the transcript',
     get_transcript: 'Reading the transcript',
+    add_captions: 'Adding captions',
     list_workspace: 'Inspecting workspace files',
     inspect_file: 'Inspecting file metadata',
     probe_media: 'Probing media streams',
