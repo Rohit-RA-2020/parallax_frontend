@@ -34,6 +34,8 @@ export type ChatRecord = {
 export type SavedChatMessage = {
   role: 'user' | 'assistant'
   content: string
+  worked_ms?: number
+  trace_events?: AgentEvent[]
 }
 
 export type AgentEvent = {

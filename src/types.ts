@@ -71,6 +71,20 @@ export type ChatMessage = {
   role: ChatRole
   text: string
   time: string
+  workedMs?: number
+  trace?: DirectorActivity[]
+}
+
+export type DirectorActivity = {
+  id: string
+  kind: 'thinking' | 'tool'
+  status: 'active' | 'success' | 'error'
+  title: string
+  name?: string
+  detail?: string
+  arguments?: unknown
+  iteration?: number
+  elapsedMs?: number
 }
 
 export type Grade = {

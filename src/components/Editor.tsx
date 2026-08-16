@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion'
-import type { ChatMessage, Clip, Grade, MediaAsset, ToolId } from '../types'
+import type { ChatMessage, Clip, DirectorActivity, Grade, MediaAsset, ToolId } from '../types'
 import {
   PROJECT_FPS,
 } from '../data/project'
@@ -56,6 +56,7 @@ import {
   streamAgent,
   uploadProjectMedia,
   type ChatRecord,
+  type AgentEvent,
   type LLMSettings,
   type ThinkingEffort,
   type ProjectMedia,
@@ -96,6 +97,9 @@ export function Editor() {
   ))
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [activity, setActivity] = useState<DirectorActivity[]>([])
+  const [activityStartedAt, setActivityStartedAt] = useState<number | null>(null)
+  const activityRef = useRef<DirectorActivity[]>([])
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
   const [grade] = useState<Grade>({ warmth: 0, contrast: 0.15, saturation: 0.1 })
@@ -116,6 +120,9 @@ export function Editor() {
   ))
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  useEffect(() => {
+    activityRef.current = activity
+  }, [activity])
   const [projectNameDraft, setProjectNameDraft] = useState('')
   const [creatingProject, setCreatingProject] = useState(false)
   const [history, setHistory] = useState<ProjectHistory | null>(null)
@@ -784,6 +791,8 @@ export function Editor() {
     saveGenRef.current += 1
     setDraft('')
     setMessages([])
+    setActivity([])
+    setActivityStartedAt(null)
     setChats([])
     setSessionId('')
     try {
@@ -801,6 +810,8 @@ export function Editor() {
       setSessionId(chatID)
       writeActiveChat(id, chatID)
       setMessages(toUiMessages(detail.messages))
+      setActivity([])
+      setActivityStartedAt(null)
     } catch (error) {
       setToast(errorMessage(error))
     }
@@ -814,6 +825,8 @@ export function Editor() {
       setSessionId(chat.id)
       writeActiveChat(projectId, chat.id)
       setMessages([])
+      setActivity([])
+      setActivityStartedAt(null)
       setDraft('')
     } catch (error) {
       setToast(errorMessage(error))
@@ -831,6 +844,8 @@ export function Editor() {
         setSessionId(chat.id)
         writeActiveChat(projectId, chat.id)
         setMessages([])
+        setActivity([])
+        setActivityStartedAt(null)
         return
       }
       setChats(remaining)
@@ -840,6 +855,8 @@ export function Editor() {
         writeActiveChat(projectId, next.id)
         const detail = await getProjectChat(projectId, next.id)
         setMessages(toUiMessages(detail.messages))
+        setActivity([])
+        setActivityStartedAt(null)
       }
     } catch (error) {
       setToast(errorMessage(error))
@@ -913,11 +930,14 @@ export function Editor() {
     }
     const userMsg: ChatMessage = { id: uid(), role: 'user', text: value, time: clock() }
     const responseID = uid()
+    const startedAt = Date.now()
     setMessages((m) => [
       ...m,
       userMsg,
       { id: responseID, role: 'assistant', text: '', time: clock() },
     ])
+    setActivity([])
+    setActivityStartedAt(startedAt)
     setDraft('')
     setPending(true)
     let streamError = ''
@@ -939,24 +959,109 @@ export function Editor() {
           ))
         }
         if (event.type === 'step' && event.data.phase === 'think') {
+          const iteration = numberValue(event.data.iteration)
+          setActivity((current) => [
+            ...current,
+            {
+              id: `think-${iteration ?? current.length}`,
+              kind: 'thinking',
+              status: 'active',
+              title: iteration === 1 ? 'Planning the request' : 'Planning the next step',
+              detail: 'Director is deciding what to inspect or change next.',
+              iteration: iteration ?? undefined,
+            },
+          ])
           setMessages((current) => current.map((message) =>
             message.id === responseID && message.text.trim()
               ? { ...message, text: message.text.trimEnd() + '\n\n' }
               : message,
           ))
         }
+        if (event.type === 'step' && event.data.phase === 'act') {
+          const iteration = numberValue(event.data.iteration)
+          setActivity((current) => [
+            ...current,
+            {
+              id: `act-${iteration ?? current.length}`,
+              kind: 'thinking',
+              status: 'active',
+              title: 'Executing the next action',
+              detail: 'Director is applying the plan through its tools.',
+              iteration: iteration ?? undefined,
+            },
+          ])
+        }
         if (event.type === 'tool_call' && typeof event.data.name === 'string') {
-          setToast(`Director is running ${event.data.name.replaceAll('_', ' ')}`)
+          const toolID = typeof event.data.id === 'string' ? event.data.id : uid()
+          const name = event.data.name
+          setActivity((current) => [
+            ...current,
+            {
+              id: `tool-${toolID}`,
+              kind: 'tool',
+              status: 'active',
+              title: toolLabel(name),
+              name,
+              arguments: event.data.arguments,
+              iteration: numberValue(event.data.iteration) ?? undefined,
+            },
+          ])
+          setToast(`Director is running ${name.replaceAll('_', ' ')}`)
+        }
+        if (event.type === 'tool_result') {
+          const toolID = typeof event.data.id === 'string' ? event.data.id : ''
+          const ok = event.data.ok === true
+          const elapsedMs = numberValue(event.data.elapsed_ms) ?? undefined
+          const error = typeof event.data.error === 'string' ? event.data.error : ''
+          setActivity((current) => {
+            const index = current.findIndex((item) => item.id === `tool-${toolID}`)
+            if (index < 0) {
+              return [
+                ...current,
+                {
+                  id: `tool-${toolID || uid()}`,
+                  kind: 'tool',
+                  status: ok ? 'success' : 'error',
+                  title: typeof event.data.name === 'string' ? toolLabel(event.data.name) : 'Tool call',
+                  detail: error || (ok ? 'Completed.' : 'The tool returned an error.'),
+                  elapsedMs,
+                },
+              ]
+            }
+            const next = [...current]
+            next[index] = {
+              ...next[index],
+              status: ok ? 'success' : 'error',
+              detail: error || (ok ? 'Completed.' : 'The tool returned an error.'),
+              elapsedMs,
+            }
+            return next
+          })
         }
         if (event.type === 'error' && typeof event.data.message === 'string') {
-          streamError = event.data.message
+          const message = event.data.message
+          streamError = message
+          setActivity((current) => [
+            ...current,
+            { id: `error-${uid()}`, kind: 'tool', status: 'error', title: 'Director stopped with an error', detail: message },
+          ])
+        }
+        if (event.type === 'done') {
+          setActivity((current) => current.map((item) => (
+            item.status === 'active' ? { ...item, status: 'success' } : item
+          )))
         }
       })
       if (streamError) throw new Error(streamError)
       setMessages((current) => current.map((message) =>
-        message.id === responseID && !message.text
-          ? { ...message, text: 'The operation completed without a written summary.' }
-          : message,
+        message.id !== responseID
+          ? message
+          : {
+              ...message,
+              workedMs: Date.now() - startedAt,
+              trace: activityRef.current,
+              ...(!message.text ? { text: 'The operation completed without a written summary.' } : {}),
+            },
       ))
       const nextAssets = await refreshMedia(projectId)
       await loadTimeline(projectId, nextAssets ?? assetsRef.current)
@@ -1140,6 +1245,8 @@ export function Editor() {
                 emptyHint={`${projects.find((item) => item.id === projectId)?.name ?? 'This project'} is ready. Upload media, add it to the timeline, or ask me to inspect and transform project files.`}
                 draft={draft}
                 pending={pending}
+                activity={activity}
+                activityStartedAt={activityStartedAt}
                 selected={selected}
                 onDraft={setDraft}
                 onSend={send}
@@ -1268,6 +1375,29 @@ function uid() {
   return Math.random().toString(36).slice(2, 9)
 }
 
+function numberValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function toolLabel(name: string) {
+  const labels: Record<string, string> = {
+    search_web: 'Searching the web',
+    list_workspace: 'Inspecting workspace files',
+    inspect_file: 'Inspecting file metadata',
+    probe_media: 'Probing media streams',
+    run_ffmpeg: 'Running media transform',
+    get_timeline: 'Reading the timeline',
+    place_media: 'Placing media on the timeline',
+    edit_timeline: 'Editing the timeline',
+    get_project_history: 'Reading project history',
+    undo_project_change: 'Staging undo',
+    redo_project_change: 'Staging redo',
+    restore_project_revision: 'Restoring project revision',
+    create_project_checkpoint: 'Creating project checkpoint',
+  }
+  return labels[name] ?? name.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
 function toMediaAsset(item: ProjectMedia): MediaAsset {
   const url = mediaURL(item)
   const kind = item.kind === 'audio' ? 'audio' : item.kind === 'subtitle' ? 'title' : 'video'
@@ -1288,15 +1418,92 @@ function toMediaAsset(item: ProjectMedia): MediaAsset {
 }
 
 function toUiMessages(messages: SavedChatMessage[]): ChatMessage[] {
-  return messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
+  const visible: SavedChatMessage[] = []
+  for (const message of messages) {
+    if (message.role !== 'user' && message.role !== 'assistant') continue
+    const previous = visible[visible.length - 1]
+    if (message.role === 'assistant' && previous?.role === 'assistant') {
+      // One Director request can contain several assistant/tool iterations.
+      // Keep the final assistant turn visible without losing the stored
+      // intermediate turns used to continue the model conversation.
+      visible[visible.length - 1] = message
+    } else {
+      visible.push(message)
+    }
+  }
+  return visible
     .filter((message) => message.content.trim())
     .map((message) => ({
       id: uid(),
       role: message.role,
       text: message.content,
       time: '',
+      workedMs: message.worked_ms,
+      trace: activityFromTrace(message.trace_events),
     }))
+}
+
+function activityFromTrace(events?: AgentEvent[]): DirectorActivity[] {
+  if (!events?.length) return []
+  const items: DirectorActivity[] = []
+  for (const event of events) {
+    const data = event.data
+    if (event.type === 'step') {
+      const iteration = numberValue(data.iteration) ?? undefined
+      const phase = data.phase
+      items.push({
+        id: `${phase}-${iteration ?? items.length}`,
+        kind: 'thinking',
+        status: 'success',
+        title: phase === 'think'
+          ? (iteration === 1 ? 'Planning the request' : 'Planning the next step')
+          : 'Executing the next action',
+        detail: phase === 'think'
+          ? 'Director decided what to inspect or change next.'
+          : 'Director applied the plan through its tools.',
+        iteration,
+      })
+      continue
+    }
+    if (event.type === 'tool_call' && typeof data.name === 'string') {
+      items.push({
+        id: `tool-${typeof data.id === 'string' ? data.id : items.length}`,
+        kind: 'tool',
+        status: 'success',
+        title: toolLabel(data.name),
+        name: data.name,
+        arguments: data.arguments,
+        iteration: numberValue(data.iteration) ?? undefined,
+      })
+      continue
+    }
+    if (event.type === 'tool_result') {
+      const id = typeof data.id === 'string' ? `tool-${data.id}` : ''
+      const index = items.findIndex((item) => item.id === id)
+      const ok = data.ok === true
+      const detail = typeof data.error === 'string'
+        ? data.error
+        : ok ? 'Completed.' : 'The tool returned an error.'
+      const elapsedMs = numberValue(data.elapsed_ms) ?? undefined
+      if (index >= 0) {
+        items[index] = { ...items[index], status: ok ? 'success' : 'error', detail, elapsedMs }
+      } else {
+        items.push({
+          id: id || `tool-${items.length}`,
+          kind: 'tool',
+          status: ok ? 'success' : 'error',
+          title: typeof data.name === 'string' ? toolLabel(data.name) : 'Tool call',
+          detail,
+          elapsedMs,
+        })
+      }
+      continue
+    }
+    if (event.type === 'error' && typeof data.message === 'string') {
+      items.push({ id: `error-${items.length}`, kind: 'tool', status: 'error', title: 'Director stopped with an error', detail: data.message })
+    }
+  }
+  return items
 }
 
 function clipUsesAsset(clip: Clip, asset: MediaAsset) {

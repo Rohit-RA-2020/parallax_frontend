@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { ArrowUp, ChevronDown, Plus, PanelRightClose, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, LoaderCircle, Plus, PanelRightClose, Trash2, Wrench } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import type { ChatMessage, Clip } from '../types'
+import type { ChatMessage, Clip, DirectorActivity } from '../types'
 import type { ChatRecord, LLMProfile, ThinkingEffort } from '../lib/api'
 import { profileLabel } from '../lib/api'
 import { formatRange } from '../lib/time'
@@ -18,6 +18,8 @@ type Props = {
   emptyHint: string
   draft: string
   pending: boolean
+  activity: DirectorActivity[]
+  activityStartedAt: number | null
   selected: Clip | undefined
   onDraft: (value: string) => void
   onSend: (text: string) => void
@@ -40,6 +42,8 @@ export function ChatPanel({
   emptyHint,
   draft,
   pending,
+  activity,
+  activityStartedAt,
   selected,
   onDraft,
   onSend,
@@ -216,9 +220,21 @@ export function ChatPanel({
         {messages.length === 0 && !pending && (
           <div className="text-[13px] leading-relaxed text-mute">{emptyHint}</div>
         )}
-        {messages.map((m) => (
-          <Message key={m.id} message={m} reduce={!!reduce} />
-        ))}
+        {messages.map((m, index) => {
+          const beforeResponse = activity.length > 0 && index === messages.length - 1 && m.role === 'assistant'
+          if (beforeResponse) {
+            return <Message
+              key={m.id}
+              message={m}
+              reduce={!!reduce}
+              activity={<ActivityPanel items={activity} pending={pending} startedAt={activityStartedAt} reduce={!!reduce} />}
+            />
+          }
+          return <Message key={m.id} message={m} reduce={!!reduce} />
+        })}
+        {activity.length > 0 && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant') && (
+          <ActivityPanel items={activity} pending={pending} startedAt={activityStartedAt} reduce={!!reduce} />
+        )}
         {pending && (
           <motion.div
             initial={reduce ? false : { opacity: 0, y: 6 }}
@@ -340,7 +356,15 @@ function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function Message({ message, reduce }: { message: ChatMessage; reduce: boolean }) {
+function Message({
+  message,
+  reduce,
+  activity,
+}: {
+  message: ChatMessage
+  reduce: boolean
+  activity?: ReactNode
+}) {
   const mine = message.role === 'user'
   return (
     <motion.div
@@ -353,6 +377,11 @@ function Message({ message, reduce }: { message: ChatMessage; reduce: boolean })
         <span>{mine ? 'You' : 'Director'}</span>
         {message.time && <span className="font-mono">{message.time}</span>}
       </div>
+      {activity ?? (!mine && message.workedMs != null ? (
+        message.trace?.length
+          ? <ActivityPanel items={message.trace} pending={false} startedAt={null} elapsedOverride={message.workedMs} reduce={reduce} />
+          : <WorkedDuration value={message.workedMs} />
+      ) : null)}
       <div
         className={cn(
           'max-w-[92%] text-[13px] leading-relaxed',
@@ -365,6 +394,155 @@ function Message({ message, reduce }: { message: ChatMessage; reduce: boolean })
       </div>
     </motion.div>
   )
+}
+
+function WorkedDuration({ value }: { value: number }) {
+  return <div className="mt-1 w-full border-t border-dotted border-line/80 px-0 pt-1 text-[9px] text-mute">Worked for {formatWorkDuration(value)}</div>
+}
+
+function ActivityPanel({
+  items,
+  pending,
+  startedAt,
+  elapsedOverride,
+  reduce,
+}: {
+  items: DirectorActivity[]
+  pending: boolean
+  startedAt: number | null
+  elapsedOverride?: number
+  reduce: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [elapsedMs, setElapsedMs] = useState(0)
+
+  useEffect(() => {
+    setExpanded(false)
+  }, [pending])
+
+  useEffect(() => {
+    if (!startedAt) return
+    const update = () => setElapsedMs(Math.max(0, Date.now() - startedAt))
+    update()
+    if (!pending) return
+    const timer = window.setInterval(update, 1000)
+    return () => window.clearInterval(timer)
+  }, [pending, startedAt])
+
+  const latest = items[items.length - 1]
+  const label = compactActivityLabel(latest?.title ?? 'Working')
+
+  return (
+    <motion.div
+      initial={reduce ? false : { opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mt-1 w-full max-w-full border-t border-dotted border-line/80 pt-1 opacity-70"
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-label={pending ? `Director is ${label}` : `Show ${items.length} Director steps`}
+        className="flex w-full max-w-full items-center gap-1 rounded px-0 py-0 text-left text-[8px] text-dim transition-colors hover:bg-wash"
+      >
+        {pending ? (
+          <>
+            <span className="size-1 shrink-0 rounded-full bg-live" />
+            <span className="min-w-0 truncate text-mute">{label}</span>
+            <span className="ml-auto shrink-0 font-mono text-[7px] text-dim">{formatWorkDuration(elapsedMs)}</span>
+          </>
+        ) : (
+          <span className="shrink-0 text-[9px] text-mute">Worked for {formatWorkDuration(elapsedOverride ?? elapsedMs)}</span>
+        )}
+        <ChevronRight size={11} className={cn('shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={reduce ? false : { height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={reduce ? undefined : { height: 0, opacity: 0 }}
+            className="ml-2 space-y-1 border-l border-line/40 py-1 pl-2"
+          >
+            {items.map((item) => <ActivityRow key={item.id} item={item} reduce={reduce} />)}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+
+function ActivityRow({ item, reduce }: { item: DirectorActivity; reduce: boolean }) {
+  const tool = item.kind === 'tool'
+  const icon = item.status === 'active'
+    ? <LoaderCircle size={12} className={cn('text-live', !reduce && 'animate-spin')} />
+    : item.status === 'error'
+      ? <CircleAlert size={12} className="text-mark" />
+      : tool
+        ? <Wrench size={11} className="text-live" />
+        : <Check size={12} className="text-dim" />
+
+  return (
+    <div className="rounded-md px-1 py-1 text-[10px] text-dim transition-colors hover:bg-wash">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="grid size-4 shrink-0 place-items-center text-dim">
+          {icon}
+        </span>
+        <span className={cn('min-w-0 flex-1 truncate', item.status === 'error' ? 'text-mark/90' : 'text-mute')}>
+          {item.title}
+        </span>
+        {item.iteration != null && <span className="shrink-0 font-mono text-[9px] text-dim">#{item.iteration}</span>}
+        {item.elapsedMs != null && <span className="shrink-0 font-mono text-[9px] text-dim">{formatElapsed(item.elapsedMs)}</span>}
+      </div>
+      {(item.detail || item.arguments !== undefined) && (
+        <div className="mt-1 ml-6 min-w-0 space-y-1">
+          {item.detail && <div className={cn('break-words text-[9px] leading-relaxed text-dim', item.status === 'error' && 'text-mark/80')}>{item.detail}</div>}
+          {item.arguments !== undefined && (
+            <details className="group">
+              <summary className="cursor-pointer text-[9px] text-dim hover:text-mute">Show arguments</summary>
+              <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-wash-strong p-1.5 font-mono text-[9px] leading-relaxed text-dim scroll-thin">
+                {formatArguments(item.arguments)}
+              </pre>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function formatArguments(value: unknown) {
+  let text = ''
+  try {
+    text = JSON.stringify(value, null, 2) ?? String(value)
+  } catch {
+    text = String(value)
+  }
+  return text.length > 1200 ? `${text.slice(0, 1200)}…` : text
+}
+
+function formatElapsed(value: number) {
+  if (value < 1000) return `${Math.max(1, Math.round(value))}ms`
+  return `${(value / 1000).toFixed(1)}s`
+}
+
+function compactActivityLabel(value: string) {
+  if (/^Planning/.test(value)) return 'Planning…'
+  if (/^Searching/.test(value)) return 'Searching…'
+  if (/^Executing/.test(value)) return 'Working…'
+  if (/^Inspecting/.test(value)) return 'Inspecting…'
+  if (/^Reading/.test(value)) return 'Reading…'
+  if (/^Editing/.test(value)) return 'Editing…'
+  if (/^Placing/.test(value)) return 'Placing…'
+  return value
+}
+
+function formatWorkDuration(value: number) {
+  const seconds = Math.max(1, Math.round(value / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`
 }
 
 export function ChatRail({ onOpen }: { onOpen: () => void }) {
