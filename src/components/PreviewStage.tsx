@@ -89,8 +89,6 @@ export function PreviewStage({
   const frameLabel = resolutionLabel(frame.width, frame.height)
   const liveAudio = useMemo(() => clipsAtTime(audioClips, currentTime), [audioClips, currentTime])
   const liveAudioIds = useMemo(() => new Set(liveAudio.map((item) => item.id)), [liveAudio])
-  const mixFromTracks = audioClips.some((item) => item.src)
-  const videoMuted = muted || mixFromTracks
 
   useLayoutEffect(() => {
     const el = wellRef.current
@@ -163,6 +161,7 @@ export function PreviewStage({
               <ProgramAudio
                 key={audio.id}
                 src={audio.src}
+                mediaType={audio.mediaType}
                 start={audio.start}
                 sourceIn={audio.sourceIn ?? 0}
                 currentTime={currentTime}
@@ -207,7 +206,7 @@ export function PreviewStage({
                 sourceIn={program.video.clip.sourceIn ?? 0}
                 currentTime={currentTime}
                 isPlaying={isPlaying}
-                muted={videoMuted}
+                muted
                 filter={pictureFilter}
                 visualStyle={pictureStyle}
                 rate={program.video.clip.playback?.rate ?? 1}
@@ -545,6 +544,7 @@ function titleVisualStyle(clip: Clip, time: number): CSSProperties {
 
 function ProgramAudio({
   src,
+  mediaType,
   start,
   sourceIn,
   currentTime,
@@ -556,6 +556,7 @@ function ProgramAudio({
   clipMuted,
 }: {
   src: string
+  mediaType?: Clip['mediaType']
   start: number
   sourceIn: number
   currentTime: number
@@ -566,7 +567,7 @@ function ProgramAudio({
   volumeDb: number
   clipMuted: boolean
 }) {
-  const audioRef = useRef<HTMLAudioElement>(null)
+  const mediaRef = useRef<HTMLVideoElement>(null)
   const startRef = useRef(start)
   const sourceInRef = useRef(sourceIn)
   const currentTimeRef = useRef(currentTime)
@@ -579,14 +580,14 @@ function ProgramAudio({
   activeRef.current = active
 
   useEffect(() => {
-    const audio = audioRef.current
-    if (!audio) return
+    const media = mediaRef.current
+    if (!media) return
     let cancelled = false
 
     const onReady = () => {
       if (cancelled) return
       syncMediaClock(
-        audio,
+        media,
         startRef.current,
         sourceInRef.current,
         currentTimeRef.current,
@@ -596,35 +597,37 @@ function ProgramAudio({
       )
     }
 
-    audio.addEventListener('loadedmetadata', onReady)
-    audio.addEventListener('canplay', onReady)
-    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) onReady()
+    media.addEventListener('loadedmetadata', onReady)
+    media.addEventListener('canplay', onReady)
+    if (media.readyState >= HTMLMediaElement.HAVE_METADATA) onReady()
 
     return () => {
       cancelled = true
-      audio.removeEventListener('loadedmetadata', onReady)
-      audio.removeEventListener('canplay', onReady)
+      media.removeEventListener('loadedmetadata', onReady)
+      media.removeEventListener('canplay', onReady)
     }
-  }, [src, rate])
+  }, [src, rate, mediaType])
 
   useEffect(() => {
-    const audio = audioRef.current
-    if (!audio) return
-    audio.volume = clipMuted ? 0 : Math.min(1, Math.max(0, Math.pow(10, volumeDb / 20)))
+    const media = mediaRef.current
+    if (!media) return
+    media.volume = clipMuted ? 0 : Math.min(1, Math.max(0, Math.pow(10, volumeDb / 20)))
   }, [clipMuted, volumeDb])
 
   useEffect(() => {
-    const audio = audioRef.current
-    if (!audio) return
-    syncMediaClock(audio, start, sourceIn, currentTime, isPlaying, active, rate)
+    const media = mediaRef.current
+    if (!media) return
+    syncMediaClock(media, start, sourceIn, currentTime, isPlaying, active, rate)
   }, [currentTime, isPlaying, start, sourceIn, active, rate])
 
   return (
-    <audio
-      ref={audioRef}
+    <video
+      ref={mediaRef}
       src={src}
       muted={muted}
+      playsInline
       preload="auto"
+      className="hidden"
     />
   )
 }

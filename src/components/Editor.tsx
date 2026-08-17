@@ -479,6 +479,12 @@ export function Editor() {
     const clip = clipsRef.current.find((item) => item.id === id)
     if (!clip) return
     setClips((prev) => removeClips(prev, [id], editModeRef.current, PROJECT_FPS))
+    timelineMetaRef.current = {
+      ...timelineMetaRef.current,
+      transitions: timelineMetaRef.current.transitions.filter((item) => (
+        item.from_item_id !== id && item.to_item_id !== id
+      )),
+    }
     setSelectedId((cur) => (cur === id ? null : cur))
     setToast(`Removed ${clip.name}`)
   }, [])

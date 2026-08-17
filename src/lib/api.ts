@@ -100,7 +100,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function listProjects() {
   const result = await request<{ projects: ProjectRecord[] }>('/v1/projects')
-  return result.projects
+  return result.projects ?? []
 }
 
 export function createProject(name: string) {
@@ -121,7 +121,7 @@ export async function deleteProject(projectID: string) {
 
 export async function listProjectMedia(projectID: string) {
   const result = await request<{ media: ProjectMedia[] }>(`/v1/projects/${projectID}/media`)
-  return result.media
+  return result.media ?? []
 }
 
 export async function uploadProjectMedia(projectID: string, files: File[]) {
@@ -195,7 +195,7 @@ export async function deleteProjectMedia(projectID: string, path: string) {
 
 export async function listProjectChats(projectID: string) {
   const result = await request<{ chats: ChatRecord[] }>(`/v1/projects/${projectID}/chats`)
-  return result.chats
+  return result.chats ?? []
 }
 
 export function createProjectChat(projectID: string, title = '') {
@@ -207,7 +207,8 @@ export function createProjectChat(projectID: string, title = '') {
 }
 
 export async function getProjectChat(projectID: string, chatID: string) {
-  return request<ChatRecord & { messages: SavedChatMessage[] }>(`/v1/projects/${projectID}/chats/${chatID}`)
+  const chat = await request<ChatRecord & { messages?: SavedChatMessage[] }>(`/v1/projects/${projectID}/chats/${chatID}`)
+  return { ...chat, messages: chat.messages ?? [] }
 }
 
 export function renameProjectChat(projectID: string, chatID: string, title: string) {
