@@ -82,11 +82,19 @@ export type MediaAsset = {
 
 export type ChatRole = 'user' | 'assistant'
 
+export type ChatImage = {
+  name?: string
+  mime?: string
+  path?: string
+  url: string
+}
+
 export type ChatMessage = {
   id: string
   role: ChatRole
   text: string
   time: string
+  images?: ChatImage[]
   workedMs?: number
   trace?: DirectorActivity[]
 }

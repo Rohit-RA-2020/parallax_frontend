@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, LoaderCircle, Plus, PanelRightClose, Trash2, Wrench } from 'lucide-react'
+import { ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, ImagePlus, LoaderCircle, Plus, PanelRightClose, Trash2, Wrench, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ChatMessage, Clip, DirectorActivity } from '../types'
 import type { ChatRecord, LLMProfile, ThinkingEffort } from '../lib/api'
 import { profileLabel } from '../lib/api'
+import { filesToChatImages, type ChatImagePayload } from '../lib/chatImage'
 import { formatRange } from '../lib/time'
 import { cn } from '../lib/cn'
 import { fade, softSpring } from '../lib/motion'
@@ -22,7 +23,7 @@ type Props = {
   activityStartedAt: number | null
   selected: Clip | undefined
   onDraft: (value: string) => void
-  onSend: (text: string) => void
+  onSend: (text: string, images?: ChatImagePayload[]) => void
   onCollapse: () => void
   onNewChat: () => void
   onSelectChat: (id: string) => void
@@ -59,10 +60,14 @@ export function ChatPanel({
 }: Props) {
   const reduce = useReducedMotion()
   const end = useRef<HTMLDivElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [attachments, setAttachments] = useState<ChatImagePayload[]>([])
+  const [dragOver, setDragOver] = useState(false)
   const menu = useRef<HTMLDivElement>(null)
   const active = chats.find((chat) => chat.id === chatId)
   const activeModel = models.find((model) => model.id === modelId) ?? models[0]
+  const canSend = Boolean(draft.trim() || attachments.length) && !pending
 
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: 'smooth' })
@@ -79,14 +84,27 @@ export function ChatPanel({
 
   function submit(e: FormEvent) {
     e.preventDefault()
-    onSend(draft)
+    send()
+  }
+
+  function send() {
+    if (!canSend) return
+    onSend(draft, attachments)
+    setAttachments([])
   }
 
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      onSend(draft)
+      send()
     }
+  }
+
+  async function addFiles(files: File[]) {
+    if (!files.length) return
+    const next = await filesToChatImages(files)
+    if (!next.length) return
+    setAttachments((current) => [...current, ...next].slice(0, 6))
   }
 
   return (
@@ -260,22 +278,82 @@ export function ChatPanel({
       <div className="border-t border-line bg-panel p-3">
         <form
           onSubmit={submit}
-          className="overflow-hidden rounded-[18px] border border-line-strong bg-lift shadow-[0_10px_28px_rgb(0_0_0_/_0.07)] transition-colors focus-within:border-line-strong"
+          onDragEnter={(event) => {
+            if (event.dataTransfer.types.includes('Files')) setDragOver(true)
+          }}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes('Files')) return
+            event.preventDefault()
+            setDragOver(true)
+          }}
+          onDragLeave={(event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node)) return
+            setDragOver(false)
+          }}
+          onDrop={(event) => {
+            event.preventDefault()
+            setDragOver(false)
+            void addFiles(Array.from(event.dataTransfer.files ?? []))
+          }}
+          className={cn(
+            'overflow-hidden rounded-[18px] border bg-lift shadow-[0_10px_28px_rgb(0_0_0_/_0.07)] transition-colors focus-within:border-line-strong',
+            dragOver ? 'border-live/40' : 'border-line-strong',
+          )}
         >
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              void addFiles(Array.from(event.target.files ?? []))
+              event.currentTarget.value = ''
+            }}
+          />
+          {attachments.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto px-3 pt-3 scroll-thin">
+              {attachments.map((image, index) => (
+                <div key={`${image.name}-${index}`} className="relative shrink-0">
+                  <img
+                    src={image.preview}
+                    alt={image.name}
+                    className="h-14 w-14 rounded-md border border-line object-cover"
+                  />
+                  <button
+                    type="button"
+                    aria-label={`Remove ${image.name}`}
+                    onClick={() => setAttachments((current) => current.filter((_, i) => i !== index))}
+                    className="absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full bg-ink text-cream"
+                  >
+                    <X size={9} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <textarea
             value={draft}
             onChange={(e) => onDraft(e.target.value)}
             onKeyDown={onKey}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData.items)
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => Boolean(file && file.type.startsWith('image/')))
+              if (!files.length) return
+              event.preventDefault()
+              void addFiles(files)
+            }}
             rows={2}
             placeholder="Ask Director to recut, grade, title, or generate a still…"
             className="block min-h-[78px] w-full resize-none border-0 bg-transparent px-3.5 py-3.5 pr-4 text-[10px] leading-relaxed text-cream outline-none placeholder:text-dim"
           />
-          <div className="flex min-w-0 items-center justify-end gap-1.5 px-2.5 pb-2.5">
-            <div className="ml-auto flex min-w-0 items-center gap-0.5">
-              {models.length > 0 && onModel && activeModel && (
+          <div className="flex min-w-0 items-center gap-1.5 px-2.5 pb-2.5">
+            <div className="flex min-w-0 flex-1 items-center gap-0.5">
+              {onModel && activeModel ? (
                 <Select value={activeModel.id} onValueChange={onModel}>
                   <SelectTrigger
-                    className="!h-7 !w-auto !min-w-0 !max-w-[116px] !border-transparent !bg-transparent px-1.5 text-[6px] tracking-wide text-dim shadow-none hover:bg-wash hover:text-cream focus-visible:bg-wash"
+                    className="!h-7 !w-auto !min-w-[88px] !max-w-[148px] !border-transparent !bg-transparent px-1.5 text-[11px] text-mute shadow-none hover:bg-wash hover:text-cream focus-visible:bg-wash"
                     aria-label="Language model"
                     title={`Language model: ${profileLabel(activeModel)}`}
                   >
@@ -295,24 +373,39 @@ export function ChatPanel({
                     })}
                   </SelectContent>
                 </Select>
+              ) : (
+                <span
+                  className="px-1.5 text-[11px] text-dim"
+                  title="The editor could not load models from the backend. Check that the server is running and LLM_MODELS is set in .env."
+                >
+                  No model
+                </span>
               )}
-              {models.length > 0 && onModel && activeModel && (
-                <span className="px-0.5 text-[10px] text-dim/50" aria-hidden>·</span>
-              )}
+              <span className="px-0.5 text-[10px] text-dim/50" aria-hidden>·</span>
               <ThinkingEffortSelect
                 value={thinkingEffort}
                 onChange={onThinkingEffort}
-                className="!h-7 !w-auto !min-w-[78px] !max-w-[104px] !border-transparent !bg-transparent px-1.5 text-[6px] tracking-wide text-dim shadow-none hover:bg-wash hover:text-cream focus-visible:bg-wash"
+                className="!h-7 !w-auto !min-w-[72px] !max-w-[104px] !border-transparent !bg-transparent px-1.5 text-[11px] tracking-wide text-dim shadow-none hover:bg-wash hover:text-cream focus-visible:bg-wash"
               />
             </div>
+            <button
+              type="button"
+              aria-label="Attach image"
+              title="Attach image"
+              disabled={pending || attachments.length >= 6}
+              onClick={() => fileInput.current?.click()}
+              className="grid size-7 shrink-0 place-items-center rounded-md text-dim transition-colors hover:bg-wash hover:text-cream disabled:opacity-35"
+            >
+              <ImagePlus size={14} />
+            </button>
             <motion.button
                 type="submit"
-                disabled={!draft.trim() || pending}
+                disabled={!canSend}
                 aria-label="Send"
-                whileHover={reduce || !draft.trim() ? undefined : { scale: 1.06, y: -1 }}
-                whileTap={reduce || !draft.trim() ? undefined : { scale: 0.9 }}
+                whileHover={reduce || !canSend ? undefined : { scale: 1.06, y: -1 }}
+                whileTap={reduce || !canSend ? undefined : { scale: 0.9 }}
                 transition={softSpring}
-                className="grid size-7 place-items-center rounded-full bg-cream text-ink transition-opacity disabled:opacity-25"
+                className="grid size-7 shrink-0 place-items-center rounded-full bg-cream text-ink transition-opacity disabled:opacity-25"
               >
                 <ArrowUp size={14} />
             </motion.button>
@@ -390,7 +483,22 @@ function Message({
             : 'text-mute',
         )}
       >
-        {mine ? message.text : <MarkdownText>{message.text}</MarkdownText>}
+        {message.images && message.images.length > 0 && (
+          <div className={cn('mb-2 grid gap-1.5', message.images.length > 1 ? 'grid-cols-2' : 'grid-cols-1')}>
+            {message.images.map((image) => (
+              <a
+                key={image.url}
+                href={image.url}
+                target="_blank"
+                rel="noreferrer"
+                className="block overflow-hidden rounded-md border border-line"
+              >
+                <img src={image.url} alt={image.name || 'Attached image'} className="max-h-40 w-full object-cover" />
+              </a>
+            ))}
+          </div>
+        )}
+        {message.text ? (mine ? message.text : <MarkdownText>{message.text}</MarkdownText>) : null}
       </div>
     </motion.div>
   )

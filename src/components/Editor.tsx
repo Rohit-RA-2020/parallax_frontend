@@ -37,6 +37,7 @@ import {
   deleteProjectChat,
   deleteProjectMedia,
   downloadProjectFile,
+  API_BASE,
   exportProjectMedia,
   getProjectChat,
   getProjectTimeline,
@@ -986,9 +987,10 @@ export function Editor() {
     }
   }
 
-  async function send(text: string) {
+  async function send(text: string, images?: { name: string; mime: string; data: string; preview?: string }[]) {
     const value = text.trim()
-    if (!value || pending) return
+    const attached = (images ?? []).map(({ name, mime, data }) => ({ name, mime, data }))
+    if ((!value && !attached.length) || pending) return
     if (!projectId) {
       setToast('Create a project before using Director')
       return
@@ -998,7 +1000,17 @@ export function Editor() {
       setToast('Save the timeline before running Director')
       return
     }
-    const userMsg: ChatMessage = { id: uid(), role: 'user', text: value, time: clock() }
+    const userMsg: ChatMessage = {
+      id: uid(),
+      role: 'user',
+      text: value,
+      time: clock(),
+      images: attached.map((image) => ({
+        name: image.name,
+        mime: image.mime,
+        url: image.data,
+      })),
+    }
     const responseID = uid()
     const startedAt = Date.now()
     setMessages((m) => [
@@ -1017,6 +1029,7 @@ export function Editor() {
         sessionID: sessionId,
         profileID: settingsRef.current?.active_id,
         message: value,
+        images: attached,
         thinkingEffort,
       }, (event) => {
         if (event.type === 'session' && typeof event.data.session_id === 'string') {
@@ -1338,7 +1351,13 @@ export function Editor() {
                 onNewChat={() => void newChat()}
                 onSelectChat={(id) => void openChat(projectId, id)}
                 onDeleteChat={(id) => void removeChat(id)}
-                models={settings?.profiles ?? []}
+                models={settings?.profiles?.length ? settings.profiles : settings ? [{
+                  id: settings.active_id || 'default',
+                  label: settings.model,
+                  base_url: settings.base_url,
+                  model: settings.model,
+                  api_key_set: settings.api_key_set,
+                }] : []}
                 modelId={settings?.active_id ?? ''}
                 onModel={(id) => void selectModel(id)}
                 thinkingEffort={thinkingEffort}
@@ -1624,12 +1643,16 @@ function toUiMessages(messages: SavedChatMessage[]): ChatMessage[] {
     }
   }
   return visible
-    .filter((message) => message.content.trim())
+    .filter((message) => message.content.trim() || (message.images && message.images.length > 0))
     .map((message) => ({
       id: uid(),
       role: message.role,
       text: message.content,
       time: '',
+      images: (message.images ?? []).flatMap((image) => {
+        const url = image.url ? API_BASE + image.url : ''
+        return url ? [{ name: image.name, mime: image.mime, path: image.path, url }] : []
+      }),
       workedMs: message.worked_ms,
       trace: activityFromTrace(message.trace_events),
     }))

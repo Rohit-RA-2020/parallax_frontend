@@ -53,9 +53,17 @@ export type ChatRecord = {
   updated_at: string
 }
 
+export type ChatImageRecord = {
+  name?: string
+  mime?: string
+  path?: string
+  url?: string
+}
+
 export type SavedChatMessage = {
   role: 'user' | 'assistant'
   content: string
+  images?: ChatImageRecord[]
   worked_ms?: number
   trace_events?: AgentEvent[]
 }
@@ -337,6 +345,7 @@ export async function streamAgent(
     sessionID?: string
     profileID?: string
     message: string
+    images?: { name: string; mime: string; data: string }[]
     thinkingEffort?: ThinkingEffort
   },
   onEvent: (event: AgentEvent) => void,
@@ -349,6 +358,7 @@ export async function streamAgent(
       session_id: input.sessionID || undefined,
       profile_id: input.profileID || undefined,
       message: input.message,
+      images: input.images?.length ? input.images : undefined,
       thinking_effort: input.thinkingEffort || DEFAULT_THINKING_EFFORT,
     }),
   })
