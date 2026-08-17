@@ -211,7 +211,9 @@ export function Editor() {
   pxPerSecondRef.current = pxPerSecond
   const currentTimeRef = useRef(currentTime)
   currentTimeRef.current = currentTime
+  const [revision, setRevision] = useState(0)
   const revisionRef = useRef(0)
+  revisionRef.current = revision
   const timelineMetaRef = useRef<{ canvas: { width: number; height: number }; transitions: TimelineTransition[] }>({ canvas: { width: 1920, height: 1080 }, transitions: [] })
   const lastSavedRef = useRef('')
   const timelineReadyRef = useRef(false)
@@ -238,11 +240,12 @@ export function Editor() {
       const previous = new Map(
         assetsRef.current.filter((asset) => asset.path).map((asset) => [asset.path as string, asset]),
       )
-      const next = items.map((item) => {
+      const next = items.flatMap((item) => {
         const asset = toMediaAsset(item)
-        if (asset.duration > 0 || !asset.path) return asset
+        if (!asset) return []
+        if (asset.duration > 0 || !asset.path) return [asset]
         const known = previous.get(asset.path)
-        return known?.duration ? { ...asset, duration: known.duration } : asset
+        return [known?.duration ? { ...asset, duration: known.duration } : asset]
       })
       setAssets(next)
       setClips((current) => syncClipMedia(current, next))
@@ -308,7 +311,7 @@ export function Editor() {
     try {
       const saved = await putProjectTimeline(id, doc, { ...opts, expectedRevision: revisionRef.current })
       if (gen !== saveGenRef.current || projectIdRef.current !== id) return
-      revisionRef.current = saved.revision
+      setRevision(saved.revision)
       lastSavedRef.current = fingerprint
       setSaveStatus('saved')
       void refreshHistory(id)
@@ -353,7 +356,7 @@ export function Editor() {
     setCurrentTime(playhead)
     setPxPerSecond(zoom)
     timelineMetaRef.current = { canvas: timeline.canvas ?? { width: 1920, height: 1080 }, transitions: timeline.transitions ?? [] }
-    revisionRef.current = timeline.revision ?? 0
+    setRevision(timeline.revision ?? 0)
     lastSavedRef.current = timelineFingerprint(buildTimelineDocument({
       clips: nextClips,
       fps: PROJECT_FPS,
@@ -373,7 +376,7 @@ export function Editor() {
     setProjectId(id)
     timelineReadyRef.current = false
     lastSavedRef.current = ''
-    revisionRef.current = 0
+    setRevision(0)
     setSaveStatus('idle')
     setClips([])
     setSelectedId(null)
@@ -385,11 +388,12 @@ export function Editor() {
       const previous = new Map(
         assetsRef.current.filter((asset) => asset.path).map((asset) => [asset.path as string, asset]),
       )
-      const next = items.map((item) => {
+      const next = items.flatMap((item) => {
         const asset = toMediaAsset(item)
-        if (asset.duration > 0 || !asset.path) return asset
+        if (!asset) return []
+        if (asset.duration > 0 || !asset.path) return [asset]
         const known = previous.get(asset.path)
-        return known?.duration ? { ...asset, duration: known.duration } : asset
+        return [known?.duration ? { ...asset, duration: known.duration } : asset]
       })
       setAssets(next)
       await loadTimeline(id, next)
@@ -631,7 +635,7 @@ export function Editor() {
     const nextClips = clipsFromDocument({ ...emptyTimelineDocument(), ...timeline, clips: timeline.clips ?? [] }, availableAssets)
     setClips(nextClips)
     setSelectedId(null)
-    revisionRef.current = timeline.revision
+    setRevision(timeline.revision)
     timelineMetaRef.current = { canvas: timeline.canvas ?? { width: 1920, height: 1080 }, transitions: timeline.transitions ?? [] }
     lastSavedRef.current = timelineFingerprint(buildTimelineDocument({ clips: nextClips, fps: timeline.fps, revision: timeline.revision, playhead: currentTimeRef.current, selectedId: null, pxPerSecond: pxPerSecondRef.current, canvas: timelineMetaRef.current.canvas, transitions: timelineMetaRef.current.transitions }))
     dirtyRef.current = false
@@ -905,7 +909,7 @@ export function Editor() {
     setProjectId('')
     timelineReadyRef.current = false
     lastSavedRef.current = ''
-    revisionRef.current = 0
+    setRevision(0)
     setSaveStatus('idle')
     setClips([])
     setSelectedId(null)
@@ -1253,6 +1257,8 @@ export function Editor() {
             audioClips={audioClips}
             grade={grade}
             duration={duration}
+            projectId={projectId}
+            timelineRevision={revision}
             onTogglePlay={() => setIsPlaying((p) => !p)}
             onSeek={seek}
             onToggleMute={() => setMuted((m) => !m)}
@@ -1549,16 +1555,17 @@ function toolLabel(name: string) {
   return labels[name] ?? name.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function toMediaAsset(item: ProjectMedia): MediaAsset {
+function toMediaAsset(item: ProjectMedia): MediaAsset | null {
+  if (item.kind === 'subtitle') return null
   const url = mediaURL(item)
-  const kind = item.kind === 'audio' ? 'audio' : item.kind === 'subtitle' ? 'title' : 'video'
+  const kind = item.kind === 'audio' ? 'audio' : 'video'
   const mediaType = item.kind === 'image' ? 'image' : item.kind === 'audio' ? 'audio' : 'video'
   const measured = item.duration && item.duration > 0 ? item.duration : 0
   return {
     id: `project-${item.id}`,
     name: item.name,
     kind,
-    duration: measured || (item.kind === 'image' ? 5 : item.kind === 'subtitle' ? 4 : 0),
+    duration: measured || (item.kind === 'image' ? 5 : 0),
     thumb: item.kind === 'image' ? url : undefined,
     src: url,
     path: item.path,

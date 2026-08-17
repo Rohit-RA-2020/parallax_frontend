@@ -12,6 +12,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import type { Clip, Grade } from '../types'
 import { PROJECT_FPS, clipsAtTime } from '../data/project'
+import { cueAt, useCaptionCues } from '../lib/captions'
 import { DEFAULT_FRAME, fitContain, resolutionLabel } from '../lib/frame'
 import { programLabel, type ProgramFrame } from '../lib/program'
 import { formatRange, formatTimecode } from '../lib/time'
@@ -30,6 +31,8 @@ type Props = {
   audioClips?: Clip[]
   grade: Grade
   duration: number
+  projectId?: string
+  timelineRevision?: number
   onTogglePlay: () => void
   onSeek: (time: number) => void
   onToggleMute: () => void
@@ -45,6 +48,8 @@ export function PreviewStage({
   audioClips = [],
   grade,
   duration,
+  projectId = '',
+  timelineRevision = 0,
   onTogglePlay,
   onSeek,
   onToggleMute,
@@ -89,6 +94,13 @@ export function PreviewStage({
   const frameLabel = resolutionLabel(frame.width, frame.height)
   const liveAudio = useMemo(() => clipsAtTime(audioClips, currentTime), [audioClips, currentTime])
   const liveAudioIds = useMemo(() => new Set(liveAudio.map((item) => item.id)), [liveAudio])
+  const captionClip = program.captions?.clip
+  const captionCues = useCaptionCues(projectId, captionClip?.mediaPath, timelineRevision)
+  const captionText = useMemo(() => {
+    if (!captionClip) return ''
+    const sourceTime = program.captions?.sourceTime ?? 0
+    return cueAt(captionCues, sourceTime)?.text ?? ''
+  }, [captionClip, captionCues, program.captions?.sourceTime])
 
   useLayoutEffect(() => {
     const el = wellRef.current
@@ -269,6 +281,14 @@ export function PreviewStage({
               </motion.div>
             )}
           </AnimatePresence>
+
+          {captionText ? (
+            <div className="pointer-events-none absolute inset-x-[7%] bottom-[6.5%] z-20 flex justify-center">
+              <span className="max-w-full whitespace-pre-wrap rounded-sm bg-black/60 px-3 py-1 text-center text-[2.15vw] leading-snug font-semibold text-white [font-family:'Noto_Sans_Devanagari','Noto_Sans',system-ui,sans-serif] [text-shadow:0_1px_1px_#000,0_0_6px_#000]">
+                {captionText}
+              </span>
+            </div>
+          ) : null}
 
           <div className="pointer-events-none absolute top-3 left-3 z-10 flex items-center gap-2">
             <motion.span

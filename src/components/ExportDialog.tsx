@@ -137,7 +137,7 @@ export function ExportDialog({
         <h2 id="export-title" className="text-[16px] font-medium text-cream">Export</h2>
         <p className="mt-1 text-[12px] text-mute">
           {source?.path === SEQUENCE_SOURCE
-            ? 'Renders the timeline — V1, V2, mixed A tracks, and gaps — the same way Program plays it.'
+            ? 'Renders the timeline — V1, titles, captions, mixed A tracks, and gaps — the same way Program plays it.'
             : 'Render a file from this project and download it.'}
         </p>
 
