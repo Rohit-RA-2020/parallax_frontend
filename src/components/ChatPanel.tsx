@@ -267,7 +267,7 @@ export function ChatPanel({
             onChange={(e) => onDraft(e.target.value)}
             onKeyDown={onKey}
             rows={2}
-            placeholder="Ask Director to recut, grade, or title…"
+            placeholder="Ask Director to recut, grade, title, or generate a still…"
             className="block min-h-[78px] w-full resize-none border-0 bg-transparent px-3.5 py-3.5 pr-4 text-[10px] leading-relaxed text-cream outline-none placeholder:text-dim"
           />
           <div className="flex min-w-0 items-center justify-end gap-1.5 px-2.5 pb-2.5">

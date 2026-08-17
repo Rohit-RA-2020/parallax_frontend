@@ -1,21 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Music2, Search, Trash2, Type } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { formatClock } from '../lib/time'
 import { cn } from '../lib/cn'
-import { fade } from '../lib/motion'
+import { fade, softSpring } from '../lib/motion'
 import { ASSET_MIME, setDraggingAsset } from '../lib/edit'
 import type { MediaAsset, MediaIndexState, MediaKind, ToolId } from '../types'
 
-const tabs: { id: MediaKind | 'all'; label: string }[] = [
+type BinTab = MediaKind | 'all' | 'image'
+
+const tabs: { id: BinTab; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'video', label: 'Video' },
+  { id: 'image', label: 'Stills' },
   { id: 'audio', label: 'Audio' },
-  { id: 'title', label: 'Titles' },
 ]
 
 const toolFilter: Partial<Record<ToolId, MediaKind | 'all'>> = {
-  media: 'all',
   titles: 'title',
   audio: 'audio',
 }
@@ -35,15 +36,20 @@ type Props = {
 export function MediaPanel({ width, tool, assets, loading, hasProject, onDuration, onFrame, onAdd, onDelete }: Props) {
   const reduce = useReducedMotion()
   const [query, setQuery] = useState('')
-  const [tab, setTab] = useState<MediaKind | 'all'>('all')
+  const [tab, setTab] = useState<BinTab>('all')
   const [previewId, setPreviewId] = useState<string | null>(null)
 
   const forced = toolFilter[tool]
-  const activeTab = forced ?? tab
+  const resolvedTab = tabs.some((item) => item.id === tab) ? tab : 'all'
+  const activeTab = forced ?? resolvedTab
 
   const items = useMemo(() => {
     return assets.filter((asset) => {
-      const matchesTab = activeTab === 'all' || asset.kind === activeTab
+      const matchesTab =
+        activeTab === 'all' ||
+        (activeTab === 'image' && asset.mediaType === 'image') ||
+        (activeTab === 'video' && asset.kind === 'video' && asset.mediaType !== 'image') ||
+        (activeTab !== 'image' && activeTab !== 'video' && asset.kind === activeTab)
       const matchesQuery = asset.name.toLowerCase().includes(query.toLowerCase())
       return matchesTab && matchesQuery
     })
@@ -99,27 +105,17 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
           </div>
 
           {!forced && (
-            <div className="flex gap-1 px-3 pb-3">
-              {tabs.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTab(t.id)}
-                  className={cn(
-                    'rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase',
-                    tab === t.id ? 'bg-wash-strong text-cream' : 'text-dim hover:text-mute',
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            <BinTabs
+              value={resolvedTab}
+              reduce={!!reduce}
+              onChange={setTab}
+            />
           )}
 
           <div className="grid grid-cols-1 content-start gap-3 overflow-y-auto px-3 pb-4 scroll-thin">
             {!loading && items.length === 0 && (
               <div className="rounded-lg border border-dashed border-line px-3 py-8 text-center text-[11px] leading-relaxed text-dim">
-                {hasProject ? 'No matching media. Upload files to this project.' : 'Create a project to start uploading media.'}
+                {hasProject ? 'No matching media. Upload files or ask Director to generate a still.' : 'Create a project to start uploading media.'}
               </div>
             )}
             {loading && (
@@ -215,6 +211,66 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
         </>
       )}
     </aside>
+  )
+}
+
+function BinTabs({
+  value,
+  reduce,
+  onChange,
+}: {
+  value: BinTab
+  reduce: boolean
+  onChange: (id: BinTab) => void
+}) {
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
+    event.preventDefault()
+    const index = tabs.findIndex((item) => item.id === value)
+    const next = event.key === 'ArrowRight'
+      ? (index + 1) % tabs.length
+      : (index - 1 + tabs.length) % tabs.length
+    onChange(tabs[next].id)
+  }
+
+  return (
+    <div className="px-3 pb-3">
+      <div
+        role="tablist"
+        aria-label="Filter bin"
+        onKeyDown={onKeyDown}
+        className="flex gap-3.5 border-b border-line"
+      >
+        {tabs.map((item) => {
+          const selected = value === item.id
+          return (
+            <motion.button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => onChange(item.id)}
+              whileTap={reduce ? undefined : { scale: 0.96 }}
+              transition={softSpring}
+              className={cn(
+                'relative pb-2 text-[11px] font-medium transition-colors duration-200',
+                selected ? 'text-cream' : 'text-dim hover:text-mute',
+              )}
+            >
+              {item.label}
+              {selected && (
+                <motion.span
+                  layoutId="bin-tab"
+                  className="absolute inset-x-0 -bottom-px h-px bg-cream/80"
+                  transition={reduce ? { duration: 0 } : softSpring}
+                />
+              )}
+            </motion.button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 

@@ -1070,7 +1070,7 @@ export function Editor() {
               id: `tool-${toolID}`,
               kind: 'tool',
               status: 'active',
-              title: toolLabel(name),
+              title: toolLabel(name, event.data.arguments),
               name,
               arguments: event.data.arguments,
               iteration: numberValue(event.data.iteration) ?? undefined,
@@ -1083,6 +1083,9 @@ export function Editor() {
           const ok = event.data.ok === true
           const elapsedMs = numberValue(event.data.elapsed_ms) ?? undefined
           const error = typeof event.data.error === 'string' ? event.data.error : ''
+          if (ok && event.data.name === 'generate_image') {
+            void refreshMedia(projectId, { silent: true })
+          }
           setActivity((current) => {
             const index = current.findIndex((item) => item.id === `tool-${toolID}`)
             if (index < 0) {
@@ -1092,7 +1095,7 @@ export function Editor() {
                   id: `tool-${toolID || uid()}`,
                   kind: 'tool',
                   status: ok ? 'success' : 'error',
-                  title: typeof event.data.name === 'string' ? toolLabel(event.data.name) : 'Tool call',
+                  title: typeof event.data.name === 'string' ? toolLabel(event.data.name, event.data.arguments) : 'Tool call',
                   detail: error || (ok ? 'Completed.' : 'The tool returned an error.'),
                   elapsedMs,
                 },
@@ -1146,6 +1149,7 @@ export function Editor() {
       setMessages((current) => current.map((message) =>
         message.id === responseID ? { ...message, text: `I couldn't complete that: ${errorMessage(error)}` } : message,
       ))
+      void refreshMedia(projectId, { silent: true })
     } finally {
       setPending(false)
     }
@@ -1322,7 +1326,7 @@ export function Editor() {
                 messages={messages}
                 chats={chats}
                 chatId={sessionId}
-                emptyHint={`${projects.find((item) => item.id === projectId)?.name ?? 'This project'} is ready. Upload media, add it to the timeline, or ask me to inspect and transform project files.`}
+                emptyHint={`${projects.find((item) => item.id === projectId)?.name ?? 'This project'} is ready. Upload media, ask me to generate a still, add it to the timeline, or inspect and transform project files.`}
                 draft={draft}
                 pending={pending}
                 activity={activity}
@@ -1534,9 +1538,11 @@ function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function toolLabel(name: string) {
+function toolLabel(name: string, args?: unknown) {
+  if (name === 'generate_image' && imageToolHasSource(args)) return 'Editing an image'
   const labels: Record<string, string> = {
     search_web: 'Searching the web',
+    generate_image: 'Generating an image',
     search_transcript: 'Searching the transcript',
     get_transcript: 'Reading the transcript',
     add_captions: 'Adding captions',
@@ -1554,6 +1560,24 @@ function toolLabel(name: string) {
     create_project_checkpoint: 'Creating project checkpoint',
   }
   return labels[name] ?? name.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function imageToolHasSource(args: unknown) {
+  let value = args
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value) as unknown
+    } catch {
+      return false
+    }
+  }
+  if (!value || typeof value !== 'object') return false
+  const body = value as Record<string, unknown>
+  if (typeof body.source === 'string' && body.source.trim()) return true
+  if (typeof body.path === 'string' && body.path.trim()) return true
+  if (typeof body.image === 'string' && body.image.trim()) return true
+  if (typeof body.images === 'string' && body.images.trim()) return true
+  return Array.isArray(body.images) && body.images.some((item) => typeof item === 'string' && item.trim())
 }
 
 function toMediaAsset(item: ProjectMedia): MediaAsset | null {
@@ -1638,7 +1662,7 @@ function activityFromTrace(events?: AgentEvent[]): DirectorActivity[] {
         id: `tool-${typeof data.id === 'string' ? data.id : items.length}`,
         kind: 'tool',
         status: 'success',
-        title: toolLabel(data.name),
+        title: toolLabel(data.name, data.arguments),
         name: data.name,
         arguments: data.arguments,
         iteration: numberValue(data.iteration) ?? undefined,
@@ -1660,7 +1684,7 @@ function activityFromTrace(events?: AgentEvent[]): DirectorActivity[] {
           id: id || `tool-${items.length}`,
           kind: 'tool',
           status: ok ? 'success' : 'error',
-          title: typeof data.name === 'string' ? toolLabel(data.name) : 'Tool call',
+          title: typeof data.name === 'string' ? toolLabel(data.name, data.arguments) : 'Tool call',
           detail,
           elapsedMs,
         })

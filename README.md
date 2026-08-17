@@ -28,9 +28,12 @@ VITE_API_URL=http://127.0.0.1:8080 npm run dev
    at the playhead, **S** toggles snap, **R** switches overwrite and ripple,
    and **U** unlinks a pair. Program (and Sequence export) share one model:
    V1 under V2, mixed A1/A2, and black gaps.
-4. Ask Director to inspect or transform project files. If the backend `.env`
-   lists more than one model, the chat composer can switch among them and set
-   the Director's thinking effort to Low, Medium, or High.
+4. Ask Director to inspect or transform project files, or to generate a still
+   into the bin. You can also ask it to edit an uploaded or generated still.
+   If the backend `.env` lists more than one model, the chat composer can
+   switch among them and set the Director's thinking effort to Low, Medium,
+   or High. Image generation needs `GEMINI_API_KEY` on the backend; generated
+   stills appear in the bin and can be placed on the timeline.
 5. Hover a bin item to delete it from the project. Timeline clips that used it
    are removed with the file.
 6. Use Export to pick format, quality, resolution, frame rate, and range, then
