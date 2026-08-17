@@ -5,6 +5,7 @@ import { formatClock } from '../lib/time'
 import { cn } from '../lib/cn'
 import { fade, softSpring } from '../lib/motion'
 import { ASSET_MIME, setDraggingAsset } from '../lib/edit'
+import { searchProjectMedia, type MediaSearchHit } from '../lib/api'
 import type { MediaAsset, MediaIndexState, MediaKind, ToolId } from '../types'
 
 type BinTab = MediaKind | 'all' | 'image'
@@ -24,6 +25,7 @@ const toolFilter: Partial<Record<ToolId, MediaKind | 'all'>> = {
 type Props = {
   width: number
   tool: ToolId
+  projectId?: string | null
   assets: MediaAsset[]
   loading: boolean
   hasProject: boolean
@@ -33,27 +35,78 @@ type Props = {
   onDelete?: (asset: MediaAsset) => void
 }
 
-export function MediaPanel({ width, tool, assets, loading, hasProject, onDuration, onFrame, onAdd, onDelete }: Props) {
+export function MediaPanel({ width, tool, projectId, assets, loading, hasProject, onDuration, onFrame, onAdd, onDelete }: Props) {
   const reduce = useReducedMotion()
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<BinTab>('all')
   const [previewId, setPreviewId] = useState<string | null>(null)
+  const [hits, setHits] = useState<MediaSearchHit[]>([])
+  const [searching, setSearching] = useState(false)
 
   const forced = toolFilter[tool]
   const resolvedTab = tabs.some((item) => item.id === tab) ? tab : 'all'
   const activeTab = forced ?? resolvedTab
 
+  useEffect(() => {
+    const needle = query.trim()
+    if (!projectId || !needle) {
+      setHits([])
+      setSearching(false)
+      return
+    }
+    let live = true
+    const timer = window.setTimeout(() => {
+      setSearching(true)
+      void searchProjectMedia(projectId, needle)
+        .then((results) => {
+          if (live) setHits(results)
+        })
+        .catch(() => {
+          if (live) setHits([])
+        })
+        .finally(() => {
+          if (live) setSearching(false)
+        })
+    }, 250)
+    return () => {
+      live = false
+      window.clearTimeout(timer)
+    }
+  }, [projectId, query])
+
+  const hitByPath = useMemo(() => {
+    const map = new Map<string, MediaSearchHit>()
+    for (const hit of hits) {
+      const path = hit.path?.trim()
+      if (!path) continue
+      const prev = map.get(path)
+      if (!prev || (hit.score ?? 0) > (prev.score ?? 0)) map.set(path, hit)
+    }
+    return map
+  }, [hits])
+
   const items = useMemo(() => {
-    return assets.filter((asset) => {
+    const needle = query.trim().toLowerCase()
+    const filtered = assets.filter((asset) => {
       const matchesTab =
         activeTab === 'all' ||
         (activeTab === 'image' && asset.mediaType === 'image') ||
         (activeTab === 'video' && asset.kind === 'video' && asset.mediaType !== 'image') ||
         (activeTab !== 'image' && activeTab !== 'video' && asset.kind === activeTab)
-      const matchesQuery = asset.name.toLowerCase().includes(query.toLowerCase())
-      return matchesTab && matchesQuery
+      if (!matchesTab) return false
+      if (!needle) return true
+      const nameHit = asset.name.toLowerCase().includes(needle)
+      const indexHit = Boolean(asset.path && hitByPath.has(asset.path))
+      return nameHit || indexHit
     })
-  }, [activeTab, query, assets])
+    if (!needle) return filtered
+    return filtered.slice().sort((a, b) => {
+      const scoreA = a.path ? hitByPath.get(a.path)?.score ?? -1 : -1
+      const scoreB = b.path ? hitByPath.get(b.path)?.score ?? -1 : -1
+      if (scoreA !== scoreB) return scoreB - scoreA
+      return a.name.localeCompare(b.name)
+    })
+  }, [activeTab, assets, hitByPath, query])
 
   const heading =
     tool === 'titles'
@@ -98,9 +151,10 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search bin"
+                placeholder="Search stills, shots, speech"
                 className="w-full bg-transparent text-[12px] text-cream outline-none placeholder:text-dim"
               />
+              {searching && <span className="shrink-0 text-[10px] text-dim">Searching</span>}
             </label>
           </div>
 
@@ -189,6 +243,11 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
                     <div className="mt-1.5 truncate text-[11px] text-mute transition-colors group-hover:text-cream">
                       {asset.name}
                     </div>
+                    {asset.path && hitByPath.get(asset.path) && (
+                      <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-dim">
+                        {searchSnippet(hitByPath.get(asset.path))}
+                      </div>
+                    )}
                   </button>
                   {onDelete && asset.path && (
                     <button
@@ -212,6 +271,18 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
       )}
     </aside>
   )
+}
+
+function searchSnippet(hit?: MediaSearchHit) {
+  if (!hit) return ''
+  const text = (hit.text_en || hit.spoken_en || '').replace(/\s+/g, ' ').trim()
+  if (!text) {
+    if (hit.kind === 'video_scene' && typeof hit.start === 'number') {
+      return `Shot at ${formatClock(hit.start)}`
+    }
+    return hit.kind === 'transcript' ? 'Matched speech' : hit.kind === 'image' ? 'Matched still' : 'Matched'
+  }
+  return text
 }
 
 function BinTabs({

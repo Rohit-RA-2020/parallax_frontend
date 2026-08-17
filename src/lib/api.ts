@@ -128,6 +128,27 @@ export async function deleteProject(projectID: string) {
   }
 }
 
+export type MediaSearchHit = {
+  path?: string
+  name?: string
+  kind?: string
+  score?: number
+  text_en?: string
+  spoken_en?: string
+  start?: number
+  end?: number
+  scene_id?: string
+}
+
+export async function searchProjectMedia(projectID: string, query: string, limit = 24) {
+  const q = query.trim()
+  if (!q) return [] as MediaSearchHit[]
+  const result = await request<{ results?: MediaSearchHit[] }>(
+    `/v1/projects/${projectID}/media/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+  )
+  return result.results ?? []
+}
+
 export async function listProjectMedia(projectID: string) {
   const result = await request<{ media: ProjectMedia[] }>(`/v1/projects/${projectID}/media`)
   return result.media ?? []

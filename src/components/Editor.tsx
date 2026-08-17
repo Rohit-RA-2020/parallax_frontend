@@ -1243,6 +1243,7 @@ export function Editor() {
                 <MediaPanel
                   width={mediaWidth}
                   tool={tool}
+                  projectId={projectId}
                   assets={assets}
                   loading={mediaLoading}
                   hasProject={!!projectId}
