@@ -342,21 +342,23 @@ function HoverVideo({
 
 function IndexBadge({ state, error, progress }: { state?: MediaIndexState; error?: string; progress?: string }) {
   if (!state || state === 'skipped') return null
-  const busy = state === 'queued' || state === 'transcribing' || state === 'translating' || state === 'indexing'
+  const busy = state === 'queued' || state === 'transcribing' || state === 'translating' || state === 'describing' || state === 'indexing'
   const label =
     state === 'queued' ? 'Queued'
       : state === 'transcribing' ? (progress || 'Transcribing')
         : state === 'translating' ? 'Translating'
-          : state === 'indexing' ? 'Indexing'
-            : state === 'index_failed' ? 'Index failed'
-              : state === 'failed' ? 'Failed'
-                : ''
+          : state === 'describing' ? 'Describing'
+            : state === 'indexing' ? 'Indexing'
+              : state === 'index_failed' ? 'Index failed'
+                : state === 'failed' ? 'Failed'
+                  : ''
   const title =
-    state === 'ready' ? 'Transcript ready'
-      : state === 'failed' ? (error || 'Transcription failed')
-        : state === 'index_failed' ? (error || 'Transcript saved; search index failed')
-          : progress && state === 'transcribing' ? `Transcribing ${progress}`
-            : label
+    state === 'ready' ? 'Search ready'
+      : state === 'failed' ? (error || 'Indexing failed')
+        : state === 'index_failed' ? (error || 'Saved; search index failed')
+          : state === 'describing' ? 'Describing still'
+            : progress && state === 'transcribing' ? `Transcribing ${progress}`
+              : label
   return (
     <span
       title={title}

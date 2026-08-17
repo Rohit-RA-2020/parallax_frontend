@@ -14,6 +14,7 @@ export type TranscriptIndexState =
   | 'queued'
   | 'transcribing'
   | 'translating'
+  | 'describing'
   | 'indexing'
   | 'ready'
   | 'index_failed'

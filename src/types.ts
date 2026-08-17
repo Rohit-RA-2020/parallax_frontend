@@ -58,6 +58,7 @@ export type MediaIndexState =
   | 'queued'
   | 'transcribing'
   | 'translating'
+  | 'describing'
   | 'indexing'
   | 'ready'
   | 'index_failed'

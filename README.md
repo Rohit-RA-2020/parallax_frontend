@@ -30,7 +30,8 @@ VITE_API_URL=http://127.0.0.1:8080 npm run dev
    V1 under V2, mixed A1/A2, and black gaps.
 4. Ask Director to inspect or transform project files, or to generate a still
    into the bin. Attach a reference image in chat (paperclip, paste, or drop)
-   so Director can see it. You can also ask it to edit an uploaded or generated still.
+   so Director can see it. You can also ask it to edit an uploaded or generated still
+   by describing it — stills are captioned on ingest so Director can search the bin.
    If the backend `.env` lists more than one model, the chat composer can
    switch among them and set the Director's thinking effort to Low, Medium,
    or High. Image generation needs `GEMINI_API_KEY` on the backend; generated

@@ -1562,6 +1562,8 @@ function toolLabel(name: string, args?: unknown) {
   const labels: Record<string, string> = {
     search_web: 'Searching the web',
     generate_image: 'Generating an image',
+    search_images: 'Searching stills',
+    get_image_caption: 'Reading the still description',
     search_transcript: 'Searching the transcript',
     get_transcript: 'Reading the transcript',
     add_captions: 'Adding captions',
@@ -1622,7 +1624,7 @@ function toMediaAsset(item: ProjectMedia): MediaAsset | null {
   }
 }
 
-const INDEX_BUSY: MediaIndexState[] = ['queued', 'transcribing', 'translating', 'indexing']
+const INDEX_BUSY: MediaIndexState[] = ['queued', 'transcribing', 'translating', 'describing', 'indexing']
 
 function indexBusy(state?: MediaIndexState) {
   return Boolean(state && INDEX_BUSY.includes(state))
