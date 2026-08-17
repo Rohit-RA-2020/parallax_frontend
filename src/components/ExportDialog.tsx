@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { Clip, MediaAsset } from '../types'
-import type { ExportFormat, ExportQuality, ExportRequest, ExportResolution } from '../lib/api'
+import type { ExportCaptions, ExportFormat, ExportQuality, ExportRequest, ExportResolution } from '../lib/api'
 import { SEQUENCE_SOURCE } from '../lib/program'
 import { fade } from '../lib/motion'
 import { cn } from '../lib/cn'
@@ -20,6 +20,7 @@ type Props = {
   playhead?: Clip
   sequenceDuration?: number
   hasSequence?: boolean
+  hasCaptions?: boolean
   busy: boolean
   onClose: () => void
   onExport: (body: ExportRequest) => void
@@ -63,6 +64,7 @@ export function ExportDialog({
   playhead,
   sequenceDuration = 0,
   hasSequence = false,
+  hasCaptions = false,
   busy,
   onClose,
   onExport,
@@ -82,6 +84,7 @@ export function ExportDialog({
   const [start, setStart] = useState('0')
   const [duration, setDuration] = useState('')
   const [filename, setFilename] = useState(defaultFilename(projectName, sources[0]))
+  const [captions, setCaptions] = useState<ExportCaptions>('soft')
 
   const source = sources.find((item) => item.id === sourceId) ?? sources[0]
   const videoLike = format !== 'mp3'
@@ -107,6 +110,7 @@ export function ExportDialog({
       start: startSec || undefined,
       duration: durationSec || undefined,
       filename: filename.trim() || defaultFilename(projectName, source),
+      captions: format === 'mp3' ? 'none' : format === 'gif' && captions === 'soft' ? 'burn' : captions,
     })
   }
 
@@ -137,8 +141,8 @@ export function ExportDialog({
         <h2 id="export-title" className="text-[16px] font-medium text-cream">Export</h2>
         <p className="mt-1 text-[12px] text-mute">
           {source?.path === SEQUENCE_SOURCE
-            ? 'Renders the timeline — V1, titles, captions, mixed A tracks, and gaps — the same way Program plays it.'
-            : 'Render a file from this project and download it.'}
+            ? 'Renders the timeline — V1, titles, captions, mixed A tracks, and gaps — the same way Program plays it. Captions export as a selectable subtitle track unless you burn them in.'
+            : 'Render a file from this project and download it. Timeline captions for this clip are muxed as a selectable subtitle track.'}
         </p>
 
         {sources.length === 0 ? (
@@ -226,6 +230,20 @@ export function ExportDialog({
                   </Field>
                 )}
               </div>
+            )}
+
+            {hasCaptions && format !== 'mp3' && (
+              <Field label="Captions">
+                <select
+                  value={format === 'gif' && captions === 'soft' ? 'burn' : captions}
+                  onChange={(event) => setCaptions(event.target.value as ExportCaptions)}
+                  className={selectClass}
+                >
+                  {format !== 'gif' && <option value="soft">Selectable track (default on)</option>}
+                  <option value="burn">Burn into picture</option>
+                  <option value="none">Off</option>
+                </select>
+              </Field>
             )}
 
             <div className="grid grid-cols-2 gap-3">

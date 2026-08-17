@@ -141,6 +141,7 @@ export function mediaURL(item: ProjectMedia) {
 export type ExportFormat = 'mp4' | 'mov' | 'webm' | 'gif' | 'mp3'
 export type ExportQuality = 'draft' | 'standard' | 'high' | 'original'
 export type ExportResolution = 'source' | '3840x2160' | '1920x1080' | '1280x720' | '854x480'
+export type ExportCaptions = 'soft' | 'burn' | 'none'
 
 export type ExportRequest = {
   source: string
@@ -152,6 +153,7 @@ export type ExportRequest = {
   start?: number
   duration?: number
   filename: string
+  captions?: ExportCaptions
 }
 
 export type ExportResult = {

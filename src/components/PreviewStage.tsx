@@ -12,7 +12,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import type { Clip, Grade } from '../types'
 import { PROJECT_FPS, clipsAtTime } from '../data/project'
-import { cueAt, useCaptionCues } from '../lib/captions'
+import { captionFontPx, cueAt, DEFAULT_CAPTION_FONT, useCaptionCues } from '../lib/captions'
 import { DEFAULT_FRAME, fitContain, resolutionLabel } from '../lib/frame'
 import { programLabel, type ProgramFrame } from '../lib/program'
 import { formatRange, formatTimecode } from '../lib/time'
@@ -282,9 +282,12 @@ export function PreviewStage({
             )}
           </AnimatePresence>
 
-          {captionText ? (
-            <div className="pointer-events-none absolute inset-x-[7%] bottom-[6.5%] z-20 flex justify-center">
-              <span className="max-w-full whitespace-pre-wrap rounded-sm bg-black/60 px-3 py-1 text-center text-[2.15vw] leading-snug font-semibold text-white [font-family:'Noto_Sans_Devanagari','Noto_Sans',system-ui,sans-serif] [text-shadow:0_1px_1px_#000,0_0_6px_#000]">
+          {captionText && captionClip ? (
+            <div
+              className="pointer-events-none absolute z-20 max-w-[86%] text-center"
+              style={captionVisualStyle(captionClip, currentTime, fitted.height)}
+            >
+              <span className="inline-block max-w-full whitespace-pre-wrap rounded-[3px] px-[0.45em] py-[0.12em] leading-snug [text-shadow:0_1px_1px_#000,0_0_6px_#000]">
                 {captionText}
               </span>
             </div>
@@ -544,6 +547,31 @@ function clipFilter(clip: Clip, base: string) {
   const grade = clip.grade
   if (!grade) return base
   return [base, `brightness(${Math.pow(2, grade.exposure ?? 0)})`, `contrast(${1 + (grade.contrast ?? 0)})`, `saturate(${1 + (grade.saturation ?? 0)})`, `sepia(${Math.max(0, grade.temperature ?? 0) * .25})`, `hue-rotate(${(grade.tint ?? 0) * 20}deg)`].join(' ')
+}
+
+function captionVisualStyle(clip: Clip, time: number, plateHeight: number): CSSProperties {
+  const transform = clip.transform
+  const x = propertyAt(clip, 'transform.x', time, transform?.x ?? 960)
+  const y = propertyAt(clip, 'transform.y', time, transform?.y ?? 1000)
+  const scaleX = propertyAt(clip, 'transform.scale_x', time, transform?.scaleX ?? 1)
+  const scaleY = propertyAt(clip, 'transform.scale_y', time, transform?.scaleY ?? 1)
+  const opacity = propertyAt(clip, 'transform.opacity', time, transform?.opacity ?? 1)
+  const fontSize = propertyAt(clip, 'title.font_size', time, clip.title?.fontSize ?? DEFAULT_CAPTION_FONT)
+  const ax = transform?.anchorX ?? 0.5
+  const ay = transform?.anchorY ?? 1
+  return {
+    left: `${x / 19.2}%`,
+    top: `${y / 10.8}%`,
+    transform: `translate(${-ax * 100}%, ${-ay * 100}%)`,
+    opacity,
+    fontSize: `${captionFontPx(fontSize, (scaleX + scaleY) / 2, plateHeight)}px`,
+    fontWeight: clip.title?.fontWeight ?? 600,
+    color: clip.title?.fill ?? '#fff',
+    background: clip.title?.background ?? 'rgba(0,0,0,0.55)',
+    WebkitTextStroke: clip.title?.stroke ? `${clip.title.strokeWidth ?? 1}px ${clip.title.stroke}` : undefined,
+    fontFamily: clip.title?.fontFamily || `'Noto Sans Devanagari', 'Noto Sans', system-ui, sans-serif`,
+    textAlign: (clip.title?.align as CSSProperties['textAlign']) ?? 'center',
+  }
 }
 
 function titleVisualStyle(clip: Clip, time: number): CSSProperties {

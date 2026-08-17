@@ -1364,6 +1364,7 @@ export function Editor() {
             playhead={program.video?.clip}
             sequenceDuration={duration}
             hasSequence={clips.length > 0}
+            hasCaptions={clips.some((clip) => clip.kind === 'caption')}
             busy={exporting}
             onClose={() => {
               if (!exporting) setExportOpen(false)

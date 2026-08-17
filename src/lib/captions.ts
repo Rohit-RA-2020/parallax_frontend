@@ -2,6 +2,16 @@ import { useEffect, useState } from 'react'
 import type { CaptionCue } from '../types'
 import { API_BASE } from './api'
 
+export const CAPTION_CANVAS_HEIGHT = 1080
+export const DEFAULT_CAPTION_FONT = 32
+
+export function captionFontPx(fontSize: number, scale: number, plateHeight: number) {
+  const size = Number.isFinite(fontSize) && fontSize > 0 ? fontSize : DEFAULT_CAPTION_FONT
+  const factor = Number.isFinite(scale) && scale > 0 ? scale : 1
+  const plate = Number.isFinite(plateHeight) && plateHeight > 0 ? plateHeight : CAPTION_CANVAS_HEIGHT
+  return Math.max(8, (size * factor * plate) / CAPTION_CANVAS_HEIGHT)
+}
+
 const cache = new Map<string, CaptionCue[]>()
 const inflight = new Map<string, Promise<CaptionCue[]>>()
 
