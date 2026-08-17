@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Music2, Search, Trash2, Type } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { formatClock } from '../lib/time'
@@ -36,6 +36,7 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
   const reduce = useReducedMotion()
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<MediaKind | 'all'>('all')
+  const [previewId, setPreviewId] = useState<string | null>(null)
 
   const forced = toolFilter[tool]
   const activeTab = forced ?? tab
@@ -115,14 +116,14 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
             </div>
           )}
 
-          <div className="grid grid-cols-2 content-start gap-2 overflow-y-auto px-3 pb-4 scroll-thin">
+          <div className="grid grid-cols-1 content-start gap-3 overflow-y-auto px-3 pb-4 scroll-thin">
             {!loading && items.length === 0 && (
-              <div className="col-span-2 rounded-lg border border-dashed border-line px-3 py-8 text-center text-[11px] leading-relaxed text-dim">
+              <div className="rounded-lg border border-dashed border-line px-3 py-8 text-center text-[11px] leading-relaxed text-dim">
                 {hasProject ? 'No matching media. Upload files to this project.' : 'Create a project to start uploading media.'}
               </div>
             )}
             {loading && (
-              <div className="col-span-2 px-2 py-8 text-center text-[11px] text-dim">Loading project media…</div>
+              <div className="px-2 py-8 text-center text-[11px] text-dim">Loading project media…</div>
             )}
             {items.map((asset, i) => (
               <motion.div
@@ -132,12 +133,21 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
                 transition={{ ...fade, delay: reduce ? 0 : i * 0.03 }}
                 whileHover={reduce ? undefined : { y: -2 }}
               >
-                <div className="group relative">
+                <div
+                  className="group relative"
+                  onPointerEnter={() => {
+                    if (asset.mediaType === 'video' && asset.src) setPreviewId(asset.id)
+                  }}
+                  onPointerLeave={() => {
+                    setPreviewId((current) => (current === asset.id ? null : current))
+                  }}
+                >
                   <button
                     type="button"
                     draggable
                     onClick={() => onAdd(asset)}
                     onDragStart={(e) => {
+                      setPreviewId(null)
                       setDraggingAsset(asset)
                       e.dataTransfer.setData(ASSET_MIME, JSON.stringify(asset))
                       e.dataTransfer.effectAllowed = 'copy'
@@ -147,18 +157,12 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
                   >
                     <div className="relative aspect-video overflow-hidden rounded-md border border-line bg-lift">
                       {asset.mediaType === 'video' && asset.src ? (
-                        <video
-                          key={asset.src}
+                        <HoverVideo
                           src={asset.src}
-                          muted
-                          preload="metadata"
-                          onLoadedMetadata={(event) => {
-                            const el = event.currentTarget
-                            const duration = el.duration
-                            if (Number.isFinite(duration) && duration > 0) onDuration(asset.id, duration)
-                            if (el.videoWidth > 0 && el.videoHeight > 0) onFrame?.(asset.id, el.videoWidth, el.videoHeight)
-                          }}
-                          className="size-full object-contain transition-transform duration-500 group-hover:scale-[1.04]"
+                          assetId={asset.id}
+                          playing={previewId === asset.id}
+                          onDuration={onDuration}
+                          onFrame={onFrame}
                         />
                       ) : asset.thumb ? (
                         <img
@@ -186,7 +190,7 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
                       </span>
                       <IndexBadge state={asset.indexState} error={asset.indexError} progress={asset.indexProgress} />
                     </div>
-                    <div className="mt-1.5 truncate pr-6 text-[11px] text-mute transition-colors group-hover:text-cream">
+                    <div className="mt-1.5 truncate text-[11px] text-mute transition-colors group-hover:text-cream">
                       {asset.name}
                     </div>
                   </button>
@@ -211,6 +215,72 @@ export function MediaPanel({ width, tool, assets, loading, hasProject, onDuratio
         </>
       )}
     </aside>
+  )
+}
+
+function HoverVideo({
+  src,
+  assetId,
+  playing,
+  onDuration,
+  onFrame,
+}: {
+  src: string
+  assetId: string
+  playing: boolean
+  onDuration: (id: string, duration: number) => void
+  onFrame?: (id: string, width: number, height: number) => void
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const playingRef = useRef(playing)
+  playingRef.current = playing
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (playing) {
+      video.muted = true
+      video.defaultMuted = true
+      video.loop = true
+      video.playsInline = true
+      const play = video.play()
+      if (play) void play.catch(() => undefined)
+      return
+    }
+    video.pause()
+    if (video.readyState > 0) video.currentTime = 0
+  }, [playing])
+
+  useEffect(() => {
+    const video = videoRef.current
+    return () => {
+      video?.pause()
+    }
+  }, [])
+
+  return (
+    <video
+      ref={videoRef}
+      key={src}
+      src={src}
+      muted
+      loop
+      playsInline
+      preload="auto"
+      disablePictureInPicture
+      onLoadedMetadata={(event) => {
+        const el = event.currentTarget
+        const duration = el.duration
+        if (Number.isFinite(duration) && duration > 0) onDuration(assetId, duration)
+        if (el.videoWidth > 0 && el.videoHeight > 0) onFrame?.(assetId, el.videoWidth, el.videoHeight)
+      }}
+      onCanPlay={(event) => {
+        if (!playingRef.current) return
+        const play = event.currentTarget.play()
+        if (play) void play.catch(() => undefined)
+      }}
+      className="pointer-events-none size-full object-contain"
+    />
   )
 }
 

@@ -19,7 +19,9 @@ VITE_API_URL=http://127.0.0.1:8080 npm run dev
 
 ## Connected workflow
 
-1. Create or select a project in the top bar.
+1. Create or select a project in the top bar. The trash control deletes the
+   current project and everything stored with it (media, transcripts,
+   embeddings, chats, timeline, and history).
 2. Upload video, audio, image, or subtitle files.
 3. Click or drag media from the bin onto the timeline. A video drop creates
    linked **V1 + A1** clips from the same file. **C** / **B** / **⌘K** splits

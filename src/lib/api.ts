@@ -111,6 +111,14 @@ export function createProject(name: string) {
   })
 }
 
+export async function deleteProject(projectID: string) {
+  const response = await fetch(`${API_BASE}/v1/projects/${projectID}`, { method: 'DELETE' })
+  if (!response.ok && response.status !== 204) {
+    const body = await response.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error || `Request failed (${response.status})`)
+  }
+}
+
 export async function listProjectMedia(projectID: string) {
   const result = await request<{ media: ProjectMedia[] }>(`/v1/projects/${projectID}/media`)
   return result.media

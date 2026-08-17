@@ -33,6 +33,7 @@ import {
 import {
   createProject as createRemoteProject,
   createProjectChat,
+  deleteProject,
   deleteProjectChat,
   deleteProjectMedia,
   downloadProjectFile,
@@ -112,6 +113,9 @@ export function Editor() {
   const [sessionId, setSessionId] = useState('')
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [createOpen, setCreateOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteName, setDeleteName] = useState('')
+  const [deletingProject, setDeletingProject] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [settings, setSettings] = useState<LLMSettings | null>(null)
@@ -889,6 +893,54 @@ export function Editor() {
     }
   }
 
+  function resetWorkspace() {
+    saveGenRef.current += 1
+    projectIdRef.current = ''
+    setProjectId('')
+    timelineReadyRef.current = false
+    lastSavedRef.current = ''
+    revisionRef.current = 0
+    setSaveStatus('idle')
+    setClips([])
+    setSelectedId(null)
+    setCurrentTime(0)
+    setAssets([])
+    setChats([])
+    setSessionId('')
+    setMessages([])
+    setActivity([])
+    setActivityStartedAt(null)
+    setHistory(null)
+    setDraft('')
+    setMediaLoading(false)
+  }
+
+  async function removeProject() {
+    const id = projectId
+    const project = projects.find((item) => item.id === id)
+    if (!id || !project || deletingProject) return
+    if (deleteName.trim() !== project.name) return
+    setDeletingProject(true)
+    saveGenRef.current += 1
+    timelineReadyRef.current = false
+    window.clearTimeout(saveTimerRef.current)
+    try {
+      await deleteProject(id)
+      clearActiveChat(id)
+      const remaining = projects.filter((item) => item.id !== id)
+      setProjects(remaining)
+      setDeleteOpen(false)
+      setDeleteName('')
+      if (remaining[0]) await openProject(remaining[0].id)
+      else resetWorkspace()
+      setToast(`${project.name} deleted`)
+    } catch (error) {
+      setToast(errorMessage(error))
+    } finally {
+      setDeletingProject(false)
+    }
+  }
+
   async function runExport(body: ExportRequest) {
     if (!projectId) return
     setExporting(true)
@@ -1115,6 +1167,14 @@ export function Editor() {
         uploading={uploading}
         onProject={(id) => openProject(id)}
         onCreateProject={() => setCreateOpen(true)}
+        onDeleteProject={() => {
+          if (!projectId) {
+            setToast('Create a project before deleting')
+            return
+          }
+          setDeleteName('')
+          setDeleteOpen(true)
+        }}
         onUpload={() => fileInput.current?.click()}
         canUndo={!!history?.can_undo && !pending}
         canRedo={!!history?.redo_candidates?.length && !pending}
@@ -1298,6 +1358,80 @@ export function Editor() {
             }}
             onExport={(body) => void runExport(body)}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {deleteOpen && (
+          <motion.div
+            initial={reduce ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reduce ? undefined : { opacity: 0 }}
+            className="absolute inset-0 z-[70] grid place-items-center bg-black/65 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-project-title"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget && !deletingProject) {
+                setDeleteOpen(false)
+                setDeleteName('')
+              }
+            }}
+          >
+            <motion.form
+              initial={reduce ? false : { opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={reduce ? undefined : { opacity: 0, y: 8, scale: 0.98 }}
+              onSubmit={(event) => {
+                event.preventDefault()
+                void removeProject()
+              }}
+              className="w-[420px] rounded-xl border border-line bg-panel p-5 shadow-2xl"
+            >
+              <h2 id="delete-project-title" className="text-[16px] font-medium text-cream">Delete this project</h2>
+              <p className="mt-1 text-[12px] leading-relaxed text-mute">
+                This permanently removes{' '}
+                <span className="text-cream">
+                  {projects.find((item) => item.id === projectId)?.name ?? 'this project'}
+                </span>
+                {' '}and everything in it: media, transcripts, embeddings, chats, timeline, and history. This cannot be undone.
+              </p>
+              <label className="mt-5 block text-[10px] tracking-[0.14em] text-dim uppercase">
+                Type the project name to confirm
+                <input
+                  autoFocus
+                  value={deleteName}
+                  onChange={(event) => setDeleteName(event.target.value)}
+                  maxLength={120}
+                  placeholder={projects.find((item) => item.id === projectId)?.name ?? 'Project name'}
+                  className="mt-2 h-10 w-full rounded-lg border border-line bg-well px-3 text-[13px] normal-case tracking-normal text-cream outline-none placeholder:text-dim focus:border-line-strong"
+                />
+              </label>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={deletingProject}
+                  onClick={() => {
+                    setDeleteOpen(false)
+                    setDeleteName('')
+                  }}
+                  className="h-9 rounded-md px-3 text-[12px] text-mute hover:bg-wash hover:text-cream"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    deletingProject
+                    || deleteName.trim() !== (projects.find((item) => item.id === projectId)?.name ?? '')
+                  }
+                  className="h-9 rounded-md bg-mark px-4 text-[12px] font-medium text-plate disabled:opacity-40"
+                >
+                  {deletingProject ? 'Deleting…' : 'Delete forever'}
+                </button>
+              </div>
+            </motion.form>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -1564,6 +1698,14 @@ function readActiveChat(projectID: string) {
 
 function writeActiveChat(projectID: string, chatID: string) {
   writePref(activeChatKey(projectID), chatID)
+}
+
+function clearActiveChat(projectID: string) {
+  try {
+    localStorage.removeItem(activeChatKey(projectID))
+  } catch {
+    // ignore quota / private mode
+  }
 }
 
 function readPref(key: string, fallback = '') {

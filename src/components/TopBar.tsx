@@ -1,4 +1,4 @@
-import { Download, Plus, Redo2, Share, Undo2, Upload } from 'lucide-react'
+import { Download, Plus, Redo2, Share, Trash2, Undo2, Upload } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { PROJECT_FPS, PROJECT_RES } from '../data/project'
 import type { ProjectRecord } from '../lib/api'
@@ -16,6 +16,7 @@ type Props = {
   exporting?: boolean
   onProject: (id: string) => void
   onCreateProject: () => void
+  onDeleteProject: () => void
   onUpload: () => void
   canUndo?: boolean
   canRedo?: boolean
@@ -32,6 +33,7 @@ export function TopBar({
   exporting,
   onProject,
   onCreateProject,
+  onDeleteProject,
   onUpload,
   canUndo,
   canRedo,
@@ -68,6 +70,9 @@ export function TopBar({
           )}
           <IconButton label="New project" onClick={onCreateProject}>
             <Plus size={14} />
+          </IconButton>
+          <IconButton label="Delete project" disabled={!projectId} onClick={onDeleteProject}>
+            <Trash2 size={14} />
           </IconButton>
           <Pill>Draft</Pill>
         </div>
