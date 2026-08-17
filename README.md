@@ -32,6 +32,7 @@ VITE_API_URL=http://127.0.0.1:8080 npm run dev
    into the bin. Attach a reference image in chat (paperclip, paste, or drop)
    so Director can see it. You can also ask it to edit an uploaded or generated still
    by describing it — stills are captioned on ingest so Director can search the bin.
+   Uploaded video is split into visual shots and described the same way.
    If the backend `.env` lists more than one model, the chat composer can
    switch among them and set the Director's thinking effort to Low, Medium,
    or High. Image generation needs `GEMINI_API_KEY` on the backend; generated

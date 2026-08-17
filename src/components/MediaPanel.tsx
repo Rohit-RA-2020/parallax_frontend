@@ -347,7 +347,7 @@ function IndexBadge({ state, error, progress }: { state?: MediaIndexState; error
     state === 'queued' ? 'Queued'
       : state === 'transcribing' ? (progress || 'Transcribing')
         : state === 'translating' ? 'Translating'
-          : state === 'describing' ? 'Describing'
+          : state === 'describing' ? (progress || 'Describing')
             : state === 'indexing' ? 'Indexing'
               : state === 'index_failed' ? 'Index failed'
                 : state === 'failed' ? 'Failed'
@@ -356,7 +356,7 @@ function IndexBadge({ state, error, progress }: { state?: MediaIndexState; error
     state === 'ready' ? 'Search ready'
       : state === 'failed' ? (error || 'Indexing failed')
         : state === 'index_failed' ? (error || 'Saved; search index failed')
-          : state === 'describing' ? 'Describing still'
+          : state === 'describing' ? (progress ? `Describing ${progress}` : 'Describing')
             : progress && state === 'transcribing' ? `Transcribing ${progress}`
               : label
   return (

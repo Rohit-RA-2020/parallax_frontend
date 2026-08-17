@@ -1564,6 +1564,8 @@ function toolLabel(name: string, args?: unknown) {
     generate_image: 'Generating an image',
     search_images: 'Searching stills',
     get_image_caption: 'Reading the still description',
+    search_scenes: 'Searching video shots',
+    get_video_scenes: 'Reading video scenes',
     search_transcript: 'Searching the transcript',
     get_transcript: 'Reading the transcript',
     add_captions: 'Adding captions',
