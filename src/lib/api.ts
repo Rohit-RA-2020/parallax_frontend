@@ -361,6 +361,12 @@ export function profileLabel(profile: Pick<LLMProfile, 'label' | 'model' | 'base
   }
 }
 
+export type HistoryMessage = {
+  role: 'user' | 'assistant'
+  content: string
+  images?: { name?: string; mime?: string; path?: string }[]
+}
+
 export async function streamAgent(
   input: {
     projectID: string
@@ -368,6 +374,7 @@ export async function streamAgent(
     profileID?: string
     message: string
     images?: { name: string; mime: string; data: string }[]
+    messages?: HistoryMessage[]
     thinkingEffort?: ThinkingEffort
   },
   onEvent: (event: AgentEvent) => void,
@@ -381,6 +388,7 @@ export async function streamAgent(
       profile_id: input.profileID || undefined,
       message: input.message,
       images: input.images?.length ? input.images : undefined,
+      messages: input.messages?.length ? input.messages : undefined,
       thinking_effort: input.thinkingEffort || DEFAULT_THINKING_EFFORT,
     }),
   })

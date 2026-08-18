@@ -66,6 +66,7 @@ import {
   type ProjectHistory,
   type ExportRequest,
   type SavedChatMessage,
+  type HistoryMessage,
   type TimelineTransition,
 } from '../lib/api'
 import { TopBar } from './TopBar'
@@ -79,6 +80,7 @@ import { HistoryPanel } from './HistoryPanel'
 import { fade, panelTransition } from '../lib/motion'
 import { cn } from '../lib/cn'
 import { createStreamTextQueue, type StreamTextQueue } from '../lib/streamText'
+import { stripThoughtMarkup } from '../lib/thought'
 
 export function Editor() {
   const reduce = useReducedMotion()
@@ -105,6 +107,10 @@ export function Editor() {
   const activityRef = useRef<DirectorActivity[]>([])
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
+  const pendingRef = useRef(false)
+  pendingRef.current = pending
+  const messagesRef = useRef<ChatMessage[]>([])
+  messagesRef.current = messages
   const [grade] = useState<Grade>({ warmth: 0, contrast: 0.15, saturation: 0.1 })
   const [toast, setToast] = useState<string | null>(null)
   const [projects, setProjects] = useState<ProjectRecord[]>([])
@@ -1008,10 +1014,59 @@ export function Editor() {
     }
   }
 
-  async function send(text: string, images?: { name: string; mime: string; data: string; preview?: string }[]) {
+  async function retryFrom(index: number) {
+    const list = messagesRef.current
+    const userIndex = list[index]?.role === 'assistant'
+      ? list.findLastIndex((message, i) => i < index && message.role === 'user')
+      : index
+    await regenerateFromUser(userIndex)
+  }
+
+  async function regenerateFromUser(userIndex: number, text?: string) {
+    if (pendingRef.current) {
+      setToast('Wait for Director to finish')
+      return
+    }
+    const list = messagesRef.current
+    const original = list[userIndex]
+    if (!original || original.role !== 'user') {
+      setToast('Nothing to regenerate from that message')
+      return
+    }
+    const nextText = text !== undefined ? text.trim() : original.text
+    if (!nextText && !original.images?.length) {
+      setToast('Message is empty')
+      return
+    }
+    const target = { ...original, text: nextText }
+    const prior = list.slice(0, userIndex)
+    const pathImages = (target.images ?? []).filter((image) => image.path)
+    const dataImages = (target.images ?? []).flatMap((image) => {
+      if (!image.url.startsWith('data:')) return []
+      return [{ name: image.name || 'image', mime: image.mime || 'image/jpeg', data: image.url, preview: image.url }]
+    })
+    const history: HistoryMessage[] = [
+      ...prior.map(toHistoryMessage),
+      ...(pathImages.length || !dataImages.length ? [toHistoryMessage(target)] : []),
+    ]
+    await send(target.text, dataImages.length && !pathImages.length ? dataImages : undefined, {
+      prior,
+      user: target,
+      history,
+    })
+  }
+
+  async function send(
+    text: string,
+    images?: { name: string; mime: string; data: string; preview?: string }[],
+    resume?: { prior: ChatMessage[]; user: ChatMessage; history: HistoryMessage[] },
+  ) {
     const value = text.trim()
     const attached = (images ?? []).map(({ name, mime, data }) => ({ name, mime, data }))
-    if ((!value && !attached.length) || pending) return
+    if ((!value && !attached.length && !resume) || pendingRef.current) {
+      if (pendingRef.current) setToast('Wait for Director to finish')
+      return
+    }
     if (!projectId) {
       setToast('Create a project before using Director')
       return
@@ -1021,7 +1076,7 @@ export function Editor() {
       setToast('Save the timeline before running Director')
       return
     }
-    const userMsg: ChatMessage = {
+    const userMsg: ChatMessage = resume?.user ?? {
       id: uid(),
       role: 'user',
       text: value,
@@ -1045,7 +1100,11 @@ export function Editor() {
       },
     })
     streamQueueRef.current = queue
-    setMessages((m) => [...m, userMsg, { id: responseID, role: 'assistant', text: '', time: replyTime }])
+    setMessages((m) => [
+      ...(resume ? resume.prior : m),
+      userMsg,
+      { id: responseID, role: 'assistant', text: '', time: replyTime },
+    ])
     setActivity([])
     setActivityStartedAt(startedAt)
     setDraft('')
@@ -1058,6 +1117,7 @@ export function Editor() {
         profileID: settingsRef.current?.active_id,
         message: value,
         images: attached,
+        messages: resume?.history,
         thinkingEffort,
       }, (event) => {
         if (!live()) return
@@ -1066,7 +1126,8 @@ export function Editor() {
           writeActiveChat(projectId, event.data.session_id)
         }
         if (event.type === 'text' && typeof event.data.delta === 'string') {
-          queue.push(event.data.delta)
+          const visible = stripThoughtMarkup(event.data.delta)
+          if (visible) queue.push(visible)
         }
         if (event.type === 'step' && event.data.phase === 'think') {
           const iteration = numberValue(event.data.iteration)
@@ -1082,6 +1143,9 @@ export function Editor() {
             },
           ])
           queue.pushBreak()
+        }
+        if (event.type === 'thinking') {
+          setActivity((current) => applyThinkingActivity(current, event.data))
         }
         if (event.type === 'step' && event.data.phase === 'act') {
           const iteration = numberValue(event.data.iteration)
@@ -1371,6 +1435,8 @@ export function Editor() {
                 selected={selected}
                 onDraft={setDraft}
                 onSend={send}
+                onRetry={(index) => void retryFrom(index)}
+                onEdit={(index, text) => void regenerateFromUser(index, text)}
                 onCollapse={() => setChatOpen(false)}
                 onNewChat={() => void newChat()}
                 onSelectChat={(id) => void openChat(projectId, id)}
@@ -1656,6 +1722,17 @@ function indexBusy(state?: MediaIndexState) {
   return Boolean(state && INDEX_BUSY.includes(state))
 }
 
+function toHistoryMessage(message: ChatMessage): HistoryMessage {
+  return {
+    role: message.role,
+    content: message.role === 'assistant' ? stripThoughtMarkup(message.text) : message.text,
+    images: (message.images ?? []).flatMap((image) => {
+      if (!image.path) return []
+      return [{ name: image.name, mime: image.mime, path: image.path }]
+    }),
+  }
+}
+
 function appendStreamText(messages: ChatMessage[], id: string, chunk: string, time: string): ChatMessage[] {
   const index = messages.findIndex((message) => message.id === id)
   if (index < 0) {
@@ -1721,6 +1798,33 @@ function toUiMessages(messages: SavedChatMessage[]): ChatMessage[] {
     }))
 }
 
+function applyThinkingActivity(items: DirectorActivity[], data: Record<string, unknown>): DirectorActivity[] {
+  const iteration = numberValue(data.iteration)
+  const delta = typeof data.delta === 'string' ? data.delta : ''
+  const text = typeof data.text === 'string' ? data.text : ''
+  if (!delta && !text) return items
+  const id = `think-${iteration ?? items.length}`
+  const index = items.findIndex((item) => item.id === id || (item.kind === 'thinking' && item.iteration === iteration && iteration != null))
+  const previous = index >= 0 ? items[index].detail ?? '' : ''
+  const detail = stripThoughtMarkup(text || `${placeholderThought(previous) ? '' : previous}${delta}`)
+  const next: DirectorActivity = {
+    id: index >= 0 ? items[index].id : id,
+    kind: 'thinking',
+    status: index >= 0 ? items[index].status : 'active',
+    title: 'Thinking',
+    detail,
+    iteration: iteration ?? items[index]?.iteration,
+  }
+  if (index < 0) return [...items, next]
+  const copy = [...items]
+  copy[index] = { ...items[index], ...next }
+  return copy
+}
+
+function placeholderThought(value: string) {
+  return !value.trim() || /^Director (is deciding|decided|is applying)/.test(value)
+}
+
 function activityFromTrace(events?: AgentEvent[]): DirectorActivity[] {
   if (!events?.length) return []
   const items: DirectorActivity[] = []
@@ -1741,6 +1845,12 @@ function activityFromTrace(events?: AgentEvent[]): DirectorActivity[] {
           : 'Director applied the plan through its tools.',
         iteration,
       })
+      continue
+    }
+    if (event.type === 'thinking') {
+      const next = applyThinkingActivity(items, data)
+      items.length = 0
+      items.push(...next)
       continue
     }
     if (event.type === 'tool_call' && typeof data.name === 'string') {

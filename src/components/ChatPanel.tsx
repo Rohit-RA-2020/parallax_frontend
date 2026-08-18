@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { ArrowUp, Check, ChevronDown, ChevronRight, CircleAlert, ImagePlus, LoaderCircle, Plus, PanelRightClose, Trash2, Wrench, X } from 'lucide-react'
+import { ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, ImagePlus, LoaderCircle, Pencil, Plus, PanelRightClose, RotateCcw, Trash2, Wrench, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ChatMessage, Clip, DirectorActivity } from '../types'
 import type { ChatRecord, LLMProfile, ThinkingEffort } from '../lib/api'
@@ -8,6 +8,7 @@ import { filesToChatImages, type ChatImagePayload } from '../lib/chatImage'
 import { formatRange } from '../lib/time'
 import { cn } from '../lib/cn'
 import { fade, softSpring } from '../lib/motion'
+import { stripThoughtMarkup, thoughtPreview } from '../lib/thought'
 import { MarkdownText } from './MarkdownText'
 import { Select, SelectContent, SelectItem, SelectTrigger } from './Select'
 
@@ -24,6 +25,8 @@ type Props = {
   selected: Clip | undefined
   onDraft: (value: string) => void
   onSend: (text: string, images?: ChatImagePayload[]) => void
+  onRetry?: (index: number) => void
+  onEdit?: (index: number, text: string) => void
   onCollapse: () => void
   onNewChat: () => void
   onSelectChat: (id: string) => void
@@ -48,6 +51,8 @@ export function ChatPanel({
   selected,
   onDraft,
   onSend,
+  onRetry,
+  onEdit,
   onCollapse,
   onNewChat,
   onSelectChat,
@@ -64,6 +69,7 @@ export function ChatPanel({
   const lastPinnedChatId = useRef(chatId)
   const wasPending = useRef(pending)
   const fileInput = useRef<HTMLInputElement>(null)
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [attachments, setAttachments] = useState<ChatImagePayload[]>([])
   const [dragOver, setDragOver] = useState(false)
@@ -75,6 +81,14 @@ export function ChatPanel({
   const lastMessage = messages[messages.length - 1]
   const replyStarted = lastMessage?.role === 'assistant' && Boolean(lastMessage.text)
   const showTyping = pending && !replyStarted && activity.length === 0
+
+  useEffect(() => {
+    setEditingIndex(null)
+  }, [chatId])
+
+  useEffect(() => {
+    if (pending) setEditingIndex(null)
+  }, [pending])
 
   useEffect(() => {
     const lastUser = [...messages].reverse().find((message) => message.role === 'user')
@@ -267,18 +281,49 @@ export function ChatPanel({
         )}
         {messages.map((m, index) => {
           const live = index === messages.length - 1 && m.role === 'assistant'
-          const streaming = pending && live && Boolean(m.text)
+          const visibleText = m.role === 'assistant' ? stripThoughtMarkup(m.text) : m.text
+          const replyStarted = Boolean(visibleText)
+          const streaming = pending && live && replyStarted
           const beforeResponse = activity.length > 0 && live
           if (beforeResponse) {
             return <Message
               key={m.id}
               message={m}
+              index={index}
               reduce={!!reduce}
               streaming={streaming}
-              activity={<ActivityPanel items={activity} pending={pending} startedAt={activityStartedAt} reduce={!!reduce} />}
+              pending={pending}
+              editing={editingIndex === index}
+              onRetry={onRetry}
+              onStartEdit={() => setEditingIndex(index)}
+              onCancelEdit={() => setEditingIndex(null)}
+              onSubmitEdit={onEdit}
+              activity={(
+                <ActivityPanel
+                  items={activity}
+                  pending={pending}
+                  replyStarted={replyStarted}
+                  startedAt={activityStartedAt}
+                  reduce={!!reduce}
+                />
+              )}
             />
           }
-          return <Message key={m.id} message={m} reduce={!!reduce} streaming={streaming} />
+          return (
+            <Message
+              key={m.id}
+              message={m}
+              index={index}
+              reduce={!!reduce}
+              streaming={streaming}
+              pending={pending}
+              editing={editingIndex === index}
+              onRetry={onRetry}
+              onStartEdit={() => setEditingIndex(index)}
+              onCancelEdit={() => setEditingIndex(null)}
+              onSubmitEdit={onEdit}
+            />
+          )
         })}
         {activity.length > 0 && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant') && (
           <ActivityPanel items={activity} pending={pending} startedAt={activityStartedAt} reduce={!!reduce} />
@@ -480,22 +525,59 @@ function capitalize(value: string) {
 
 function Message({
   message,
+  index,
   reduce,
   activity,
   streaming = false,
+  pending = false,
+  editing = false,
+  onRetry,
+  onStartEdit,
+  onCancelEdit,
+  onSubmitEdit,
 }: {
   message: ChatMessage
+  index: number
   reduce: boolean
   activity?: ReactNode
   streaming?: boolean
+  pending?: boolean
+  editing?: boolean
+  onRetry?: (index: number) => void
+  onStartEdit?: () => void
+  onCancelEdit?: () => void
+  onSubmitEdit?: (index: number, text: string) => void
 }) {
   const mine = message.role === 'user'
+  const reply = mine ? message.text : stripThoughtMarkup(message.text)
+  const [draft, setDraft] = useState(message.text)
+  const editor = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(message.text)
+      return
+    }
+    setDraft(message.text)
+    const node = editor.current
+    if (!node) return
+    node.focus()
+    node.selectionStart = node.value.length
+    node.selectionEnd = node.value.length
+  }, [editing, message.text])
+
+  function submitEdit() {
+    const next = draft.trim()
+    if (!next && !message.images?.length) return
+    onSubmitEdit?.(index, next)
+  }
+
   return (
     <motion.div
       initial={mine && !reduce ? { opacity: 0, y: 8 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={fade}
-      className={cn('flex flex-col gap-1', mine && 'items-end')}
+      className={cn('group/message flex flex-col gap-1', mine && 'items-end')}
     >
       <div className="flex items-center gap-2 text-[10px] text-dim">
         <span>{mine ? 'You' : 'Director'}</span>
@@ -512,6 +594,7 @@ function Message({
           mine
             ? 'rounded-lg rounded-tr-sm border border-line bg-lift px-3 py-2 text-cream'
             : 'text-mute',
+          editing && 'w-full border-line-strong',
         )}
       >
         {message.images && message.images.length > 0 && (
@@ -529,14 +612,167 @@ function Message({
             ))}
           </div>
         )}
-        {message.text ? (
+        {editing ? (
+          <div>
+            <textarea
+              ref={editor}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  onCancelEdit?.()
+                }
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  submitEdit()
+                }
+              }}
+              rows={Math.min(8, Math.max(2, draft.split('\n').length))}
+              className="block w-full resize-none bg-transparent text-[13px] leading-relaxed text-cream outline-none"
+            />
+            <div className="mt-2 flex justify-end gap-1">
+              <button
+                type="button"
+                onClick={onCancelEdit}
+                className="rounded-md px-2 py-1 text-[10px] text-dim hover:bg-wash hover:text-cream"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitEdit}
+                disabled={!draft.trim() && !message.images?.length}
+                className="rounded-md bg-cream px-2 py-1 text-[10px] text-ink disabled:opacity-30"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        ) : reply ? (
           <div className={cn(!mine && !reduce && 'chat-message-enter', streaming && !reduce && 'stream-ink')}>
-            {mine ? message.text : <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{message.text}</MarkdownText>}
+            {mine ? reply : <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{reply}</MarkdownText>}
           </div>
         ) : null}
       </div>
+      {!editing && (
+        <MessageActions
+          text={reply}
+          canRetry={!mine && !pending && Boolean(onRetry)}
+          canEdit={mine && !pending && Boolean(onStartEdit) && Boolean(reply || message.images?.length)}
+          onRetry={onRetry ? () => onRetry(index) : undefined}
+          onEdit={onStartEdit}
+        />
+      )}
     </motion.div>
   )
+}
+
+function MessageActions({
+  text,
+  canRetry,
+  canEdit,
+  onRetry,
+  onEdit,
+}: {
+  text: string
+  canRetry: boolean
+  canEdit?: boolean
+  onRetry?: () => void
+  onEdit?: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const canCopy = Boolean(text.trim())
+
+  async function copy() {
+    if (!canCopy) return
+    const ok = await copyText(text)
+    if (!ok) return
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1400)
+  }
+
+  if (!canCopy && !canRetry && !canEdit) return null
+
+  return (
+    <div className="flex items-center gap-0.5">
+      {canCopy && (
+        <ActionIcon
+          label={copied ? 'Copied' : 'Copy'}
+          onClick={() => void copy()}
+        >
+          {copied ? <Check size={11} /> : <Copy size={11} />}
+        </ActionIcon>
+      )}
+      {canEdit && (
+        <ActionIcon label="Edit" onClick={onEdit}>
+          <Pencil size={11} />
+        </ActionIcon>
+      )}
+      {canRetry && (
+        <ActionIcon
+          label="Retry"
+          onClick={onRetry}
+        >
+          <RotateCcw size={11} />
+        </ActionIcon>
+      )}
+    </div>
+  )
+}
+
+function ActionIcon({
+  label,
+  onClick,
+  children,
+}: {
+  label: string
+  onClick?: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onClick?.()
+      }}
+      className="group/action relative grid size-6 place-items-center rounded-md text-dim transition-colors hover:bg-wash hover:text-cream"
+    >
+      {children}
+      <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 -translate-x-1/2 rounded bg-ink px-1.5 py-0.5 text-[10px] whitespace-nowrap text-cream opacity-0 shadow-[var(--toast-shadow)] transition-opacity group-hover/action:opacity-100">
+        {label}
+      </span>
+    </button>
+  )
+}
+
+async function copyText(text: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to the textarea fallback
+  }
+  try {
+    const field = document.createElement('textarea')
+    field.value = text
+    field.setAttribute('readonly', '')
+    field.style.position = 'fixed'
+    field.style.left = '-9999px'
+    document.body.appendChild(field)
+    field.select()
+    const ok = document.execCommand('copy')
+    field.remove()
+    return ok
+  } catch {
+    return false
+  }
 }
 
 function WorkedDuration({ value }: { value: number }) {
@@ -546,22 +782,29 @@ function WorkedDuration({ value }: { value: number }) {
 function ActivityPanel({
   items,
   pending,
+  replyStarted = false,
   startedAt,
   elapsedOverride,
   reduce,
 }: {
   items: DirectorActivity[]
   pending: boolean
+  replyStarted?: boolean
   startedAt: number | null
   elapsedOverride?: number
   reduce: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
+  const hasThought = items.some((item) => item.kind === 'thinking' && item.detail && !placeholderThought(item.detail))
 
   useEffect(() => {
-    setExpanded(false)
-  }, [pending])
+    if (!pending || replyStarted) {
+      setExpanded(false)
+      return
+    }
+    if (hasThought) setExpanded(true)
+  }, [hasThought, pending, replyStarted])
 
   useEffect(() => {
     if (!startedAt) return
@@ -573,7 +816,9 @@ function ActivityPanel({
   }, [pending, startedAt])
 
   const latest = items[items.length - 1]
-  const label = compactActivityLabel(latest?.title ?? 'Working')
+  const latestThought = [...items].reverse().find((item) => item.kind === 'thinking' && item.detail && !placeholderThought(item.detail))
+  const thoughtLine = latestThought?.detail ? thoughtPreview(latestThought.detail) : ''
+  const label = !replyStarted && thoughtLine ? thoughtLine : compactActivityLabel(latestThought ? 'Thinking' : latest?.title ?? 'Working')
 
   return (
     <motion.div
@@ -591,7 +836,7 @@ function ActivityPanel({
         {pending ? (
           <>
             <span className="size-1 shrink-0 rounded-full bg-live" />
-            <span className="min-w-0 truncate text-mute">{label}</span>
+            <span className="min-w-0 truncate text-dim">{label}</span>
             <span className="ml-auto shrink-0 font-mono text-[7px] text-dim">{formatWorkDuration(elapsedMs)}</span>
           </>
         ) : (
@@ -617,13 +862,16 @@ function ActivityPanel({
 
 function ActivityRow({ item, reduce }: { item: DirectorActivity; reduce: boolean }) {
   const tool = item.kind === 'tool'
+  const thought = item.kind === 'thinking' && item.detail && !placeholderThought(item.detail)
   const icon = item.status === 'active'
     ? <LoaderCircle size={12} className={cn('text-live', !reduce && 'animate-spin')} />
     : item.status === 'error'
       ? <CircleAlert size={12} className="text-mark" />
       : tool
         ? <Wrench size={11} className="text-live" />
-        : <Check size={12} className="text-dim" />
+        : thought
+          ? <Brain size={11} className="text-live" />
+          : <Check size={12} className="text-dim" />
 
   return (
     <div className="rounded-md px-1 py-1 text-[10px] text-dim transition-colors hover:bg-wash">
@@ -639,7 +887,18 @@ function ActivityRow({ item, reduce }: { item: DirectorActivity; reduce: boolean
       </div>
       {(item.detail || item.arguments !== undefined) && (
         <div className="mt-1 ml-6 min-w-0 space-y-1">
-          {item.detail && <div className={cn('break-words text-[9px] leading-relaxed text-dim', item.status === 'error' && 'text-mark/80')}>{item.detail}</div>}
+          {item.detail && (
+            <div
+              className={cn(
+                'break-words leading-relaxed',
+                item.status === 'error' ? 'text-[9px] text-mark/80' : thought
+                  ? 'max-h-44 overflow-y-auto whitespace-pre-wrap text-[10px] text-dim/80 scroll-thin'
+                  : 'text-[9px] text-dim',
+              )}
+            >
+              {thought ? stripThoughtMarkup(item.detail) : item.detail}
+            </div>
+          )}
           {item.arguments !== undefined && (
             <details className="group">
               <summary className="cursor-pointer text-[9px] text-dim hover:text-mute">Show arguments</summary>
@@ -669,8 +928,13 @@ function formatElapsed(value: number) {
   return `${(value / 1000).toFixed(1)}s`
 }
 
+function placeholderThought(value: string) {
+  return !value.trim() || /^Director (is deciding|decided|is applying)/.test(value)
+}
+
 function compactActivityLabel(value: string) {
   if (/^Planning/.test(value)) return 'Planning…'
+  if (/^Thinking/.test(value)) return 'Thinking…'
   if (/^Searching/.test(value)) return 'Searching…'
   if (/^Executing/.test(value)) return 'Working…'
   if (/^Inspecting/.test(value)) return 'Inspecting…'
