@@ -59,19 +59,42 @@ export function ChatPanel({
   onThinkingEffort,
 }: Props) {
   const reduce = useReducedMotion()
-  const end = useRef<HTMLDivElement>(null)
+  const scroller = useRef<HTMLDivElement>(null)
+  const lastPinnedUserId = useRef<string | undefined>(undefined)
+  const lastPinnedChatId = useRef(chatId)
+  const wasPending = useRef(pending)
   const fileInput = useRef<HTMLInputElement>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [attachments, setAttachments] = useState<ChatImagePayload[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const [announcement, setAnnouncement] = useState('')
   const menu = useRef<HTMLDivElement>(null)
   const active = chats.find((chat) => chat.id === chatId)
   const activeModel = models.find((model) => model.id === modelId) ?? models[0]
   const canSend = Boolean(draft.trim() || attachments.length) && !pending
+  const lastMessage = messages[messages.length - 1]
+  const replyStarted = lastMessage?.role === 'assistant' && Boolean(lastMessage.text)
+  const showTyping = pending && !replyStarted && activity.length === 0
 
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, pending])
+    const lastUser = [...messages].reverse().find((message) => message.role === 'user')
+    const chatChanged = lastPinnedChatId.current !== chatId
+    const userChanged = Boolean(lastUser && lastUser.id !== lastPinnedUserId.current)
+    lastPinnedChatId.current = chatId
+    lastPinnedUserId.current = lastUser?.id
+    if (!chatChanged && !userChanged) return
+    const el = scroller.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [chatId, messages])
+
+  useEffect(() => {
+    if (wasPending.current && !pending) {
+      const last = [...messages].reverse().find((message) => message.role === 'assistant')
+      if (last?.text) setAnnouncement(last.text)
+    }
+    wasPending.current = pending
+  }, [pending, messages])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -234,26 +257,33 @@ export function ChatPanel({
         )}
       </AnimatePresence>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 scroll-thin">
+      <div
+        ref={scroller}
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto [overflow-anchor:none] px-4 py-4 scroll-thin"
+      >
+        <div className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</div>
         {messages.length === 0 && !pending && (
           <div className="text-[13px] leading-relaxed text-mute">{emptyHint}</div>
         )}
         {messages.map((m, index) => {
-          const beforeResponse = activity.length > 0 && index === messages.length - 1 && m.role === 'assistant'
+          const live = index === messages.length - 1 && m.role === 'assistant'
+          const streaming = pending && live && Boolean(m.text)
+          const beforeResponse = activity.length > 0 && live
           if (beforeResponse) {
             return <Message
               key={m.id}
               message={m}
               reduce={!!reduce}
+              streaming={streaming}
               activity={<ActivityPanel items={activity} pending={pending} startedAt={activityStartedAt} reduce={!!reduce} />}
             />
           }
-          return <Message key={m.id} message={m} reduce={!!reduce} />
+          return <Message key={m.id} message={m} reduce={!!reduce} streaming={streaming} />
         })}
         {activity.length > 0 && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant') && (
           <ActivityPanel items={activity} pending={pending} startedAt={activityStartedAt} reduce={!!reduce} />
         )}
-        {pending && (
+        {showTyping && (
           <motion.div
             initial={reduce ? false : { opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
@@ -272,7 +302,6 @@ export function ChatPanel({
             Cutting…
           </motion.div>
         )}
-        <div ref={end} />
       </div>
 
       <div className="border-t border-line bg-panel p-3">
@@ -453,15 +482,17 @@ function Message({
   message,
   reduce,
   activity,
+  streaming = false,
 }: {
   message: ChatMessage
   reduce: boolean
   activity?: ReactNode
+  streaming?: boolean
 }) {
   const mine = message.role === 'user'
   return (
     <motion.div
-      initial={reduce ? false : { opacity: 0, y: 8 }}
+      initial={mine && !reduce ? { opacity: 0, y: 8 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={fade}
       className={cn('flex flex-col gap-1', mine && 'items-end')}
@@ -498,7 +529,11 @@ function Message({
             ))}
           </div>
         )}
-        {message.text ? (mine ? message.text : <MarkdownText>{message.text}</MarkdownText>) : null}
+        {message.text ? (
+          <div className={cn(!mine && !reduce && 'chat-message-enter', streaming && !reduce && 'stream-ink')}>
+            {mine ? message.text : <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{message.text}</MarkdownText>}
+          </div>
+        ) : null}
       </div>
     </motion.div>
   )

@@ -78,6 +78,7 @@ import { ExportDialog } from './ExportDialog'
 import { HistoryPanel } from './HistoryPanel'
 import { fade, panelTransition } from '../lib/motion'
 import { cn } from '../lib/cn'
+import { createStreamTextQueue, type StreamTextQueue } from '../lib/streamText'
 
 export function Editor() {
   const reduce = useReducedMotion()
@@ -125,9 +126,17 @@ export function Editor() {
   ))
   const settingsRef = useRef(settings)
   settingsRef.current = settings
+  const streamQueueRef = useRef<StreamTextQueue | null>(null)
+  const streamGenRef = useRef(0)
   useEffect(() => {
     activityRef.current = activity
   }, [activity])
+  useEffect(() => {
+    return () => {
+      streamGenRef.current += 1
+      streamQueueRef.current?.reset()
+    }
+  }, [])
   const [projectNameDraft, setProjectNameDraft] = useState('')
   const [creatingProject, setCreatingProject] = useState(false)
   const [history, setHistory] = useState<ProjectHistory | null>(null)
@@ -808,10 +817,18 @@ export function Editor() {
     return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 
+  function abandonStream() {
+    streamGenRef.current += 1
+    streamQueueRef.current?.reset()
+    streamQueueRef.current = null
+    setPending(false)
+  }
+
   async function openProject(id: string) {
     if (id === projectIdRef.current) return
     await flushTimeline()
     saveGenRef.current += 1
+    abandonStream()
     setDraft('')
     setMessages([])
     setActivity([])
@@ -830,6 +847,7 @@ export function Editor() {
     if (!id || chatID === sessionId) return
     try {
       const detail = await getProjectChat(id, chatID)
+      abandonStream()
       setSessionId(chatID)
       writeActiveChat(id, chatID)
       setMessages(toUiMessages(detail.messages))
@@ -844,6 +862,7 @@ export function Editor() {
     if (!projectId) return
     try {
       const chat = await createProjectChat(projectId)
+      abandonStream()
       setChats((current) => [chat, ...current])
       setSessionId(chat.id)
       writeActiveChat(projectId, chat.id)
@@ -863,6 +882,7 @@ export function Editor() {
       const remaining = chats.filter((chat) => chat.id !== chatID)
       if (remaining.length === 0) {
         const chat = await createProjectChat(projectId)
+        abandonStream()
         setChats([chat])
         setSessionId(chat.id)
         writeActiveChat(projectId, chat.id)
@@ -874,6 +894,7 @@ export function Editor() {
       setChats(remaining)
       if (sessionId === chatID) {
         const next = remaining[0]
+        abandonStream()
         setSessionId(next.id)
         writeActiveChat(projectId, next.id)
         const detail = await getProjectChat(projectId, next.id)
@@ -1013,11 +1034,18 @@ export function Editor() {
     }
     const responseID = uid()
     const startedAt = Date.now()
-    setMessages((m) => [
-      ...m,
-      userMsg,
-      { id: responseID, role: 'assistant', text: '', time: clock() },
-    ])
+    const replyTime = clock()
+    abandonStream()
+    const gen = streamGenRef.current
+    const live = () => streamGenRef.current === gen
+    const queue = createStreamTextQueue({
+      onAppend(chunk) {
+        if (!live()) return
+        setMessages((current) => appendStreamText(current, responseID, chunk, replyTime))
+      },
+    })
+    streamQueueRef.current = queue
+    setMessages((m) => [...m, userMsg, { id: responseID, role: 'assistant', text: '', time: replyTime }])
     setActivity([])
     setActivityStartedAt(startedAt)
     setDraft('')
@@ -1032,14 +1060,13 @@ export function Editor() {
         images: attached,
         thinkingEffort,
       }, (event) => {
+        if (!live()) return
         if (event.type === 'session' && typeof event.data.session_id === 'string') {
           setSessionId(event.data.session_id)
           writeActiveChat(projectId, event.data.session_id)
         }
         if (event.type === 'text' && typeof event.data.delta === 'string') {
-          setMessages((current) => current.map((message) =>
-            message.id === responseID ? { ...message, text: message.text + event.data.delta } : message,
-          ))
+          queue.push(event.data.delta)
         }
         if (event.type === 'step' && event.data.phase === 'think') {
           const iteration = numberValue(event.data.iteration)
@@ -1054,11 +1081,7 @@ export function Editor() {
               iteration: iteration ?? undefined,
             },
           ])
-          setMessages((current) => current.map((message) =>
-            message.id === responseID && message.text.trim()
-              ? { ...message, text: message.text.trimEnd() + '\n\n' }
-              : message,
-          ))
+          queue.pushBreak()
         }
         if (event.type === 'step' && event.data.phase === 'act') {
           const iteration = numberValue(event.data.iteration)
@@ -1139,16 +1162,13 @@ export function Editor() {
         }
       })
       if (streamError) throw new Error(streamError)
-      setMessages((current) => current.map((message) =>
-        message.id !== responseID
-          ? message
-          : {
-              ...message,
-              workedMs: Date.now() - startedAt,
-              trace: activityRef.current,
-              ...(!message.text ? { text: 'The operation completed without a written summary.' } : {}),
-            },
-      ))
+      queue.end()
+      await queue.idle()
+      if (!live()) return
+      setMessages((current) => finishStreamMessage(current, responseID, replyTime, {
+        workedMs: Date.now() - startedAt,
+        trace: activityRef.current,
+      }))
       const nextAssets = await refreshMedia(projectId)
       await loadTimeline(projectId, nextAssets ?? assetsRef.current)
       await refreshHistory(projectId)
@@ -1159,12 +1179,15 @@ export function Editor() {
         // keep the in-memory chat list if the refresh fails
       }
     } catch (error) {
-      setMessages((current) => current.map((message) =>
-        message.id === responseID ? { ...message, text: `I couldn't complete that: ${errorMessage(error)}` } : message,
-      ))
+      queue.fail()
+      await queue.idle()
+      if (!live()) return
+      setMessages((current) => finishStreamMessage(current, responseID, replyTime, {
+        text: streamErrorText(current, responseID, errorMessage(error)),
+      }))
       void refreshMedia(projectId, { silent: true })
     } finally {
-      setPending(false)
+      if (live()) setPending(false)
     }
   }
 
@@ -1631,6 +1654,41 @@ const INDEX_BUSY: MediaIndexState[] = ['queued', 'transcribing', 'translating', 
 
 function indexBusy(state?: MediaIndexState) {
   return Boolean(state && INDEX_BUSY.includes(state))
+}
+
+function appendStreamText(messages: ChatMessage[], id: string, chunk: string, time: string): ChatMessage[] {
+  const index = messages.findIndex((message) => message.id === id)
+  if (index < 0) {
+    return [...messages, { id, role: 'assistant', text: chunk, time }]
+  }
+  const next = [...messages]
+  next[index] = { ...next[index], text: next[index].text + chunk }
+  return next
+}
+
+function finishStreamMessage(
+  messages: ChatMessage[],
+  id: string,
+  time: string,
+  patch: Partial<ChatMessage>,
+): ChatMessage[] {
+  const index = messages.findIndex((message) => message.id === id)
+  const fallback = patch.text ?? (index < 0 || !messages[index].text
+    ? 'The operation completed without a written summary.'
+    : undefined)
+  const nextPatch = fallback != null ? { ...patch, text: fallback } : patch
+  if (index < 0) {
+    return [...messages, { id, role: 'assistant', text: nextPatch.text ?? '', time, ...nextPatch }]
+  }
+  const next = [...messages]
+  next[index] = { ...next[index], ...nextPatch }
+  return next
+}
+
+function streamErrorText(messages: ChatMessage[], id: string, detail: string) {
+  const existing = messages.find((message) => message.id === id)?.text.trim()
+  const note = `I couldn't complete that: ${detail}`
+  return existing ? `${existing}\n\n${note}` : note
 }
 
 function toUiMessages(messages: SavedChatMessage[]): ChatMessage[] {
