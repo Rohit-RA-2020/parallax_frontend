@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { Music2, Search, Trash2, Type } from 'lucide-react'
+import { Check, Copy, Music2, ScanSearch, Search, Trash2, Type } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { formatClock } from '../lib/time'
+import { formatClock, formatDurationMs, realtimeFactor } from '../lib/time'
 import { cn } from '../lib/cn'
 import { fade, softSpring } from '../lib/motion'
 import { ASSET_MIME, setDraggingAsset } from '../lib/edit'
 import { searchProjectMedia, type MediaSearchHit } from '../lib/api'
-import type { MediaAsset, MediaIndexState, MediaKind, ToolId } from '../types'
+import type { MediaAsset, MediaIndexState, MediaIndexTimings, MediaKind, ToolId } from '../types'
 
 type BinTab = MediaKind | 'all' | 'image'
 
@@ -33,15 +33,17 @@ type Props = {
   onFrame?: (id: string, width: number, height: number) => void
   onAdd: (asset: MediaAsset) => void
   onDelete?: (asset: MediaAsset) => void
+  onDescribe?: (asset: MediaAsset) => void
 }
 
-export function MediaPanel({ width, tool, projectId, assets, loading, hasProject, onDuration, onFrame, onAdd, onDelete }: Props) {
+export function MediaPanel({ width, tool, projectId, assets, loading, hasProject, onDuration, onFrame, onAdd, onDelete, onDescribe }: Props) {
   const reduce = useReducedMotion()
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<BinTab>('all')
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [hits, setHits] = useState<MediaSearchHit[]>([])
   const [searching, setSearching] = useState(false)
+  const now = useNow(assets.some((asset) => indexBusy(asset.indexState)))
 
   const forced = toolFilter[tool]
   const resolvedTab = tabs.some((item) => item.id === tab) ? tab : 'all'
@@ -249,6 +251,22 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
                       </div>
                     )}
                   </button>
+                  <IndexStatsCard asset={asset} now={now} />
+                  {onDescribe && asset.canDescribe && asset.path && (
+                    <button
+                      type="button"
+                      aria-label={`Describe scenes in ${asset.name}`}
+                      title="Describe scenes for visual search"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        onDescribe(asset)
+                      }}
+                      className="absolute top-1 left-1 z-10 grid size-6 place-items-center rounded-md bg-black/70 text-plate/80 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-live hover:text-ink focus-visible:opacity-100"
+                    >
+                      <ScanSearch size={11} />
+                    </button>
+                  )}
                   {onDelete && asset.path && (
                     <button
                       type="button"
@@ -446,6 +464,148 @@ function IndexBadge({ state, error, progress }: { state?: MediaIndexState; error
       />
       {label ? <span className="truncate text-plate/90">{label}</span> : null}
     </span>
+  )
+}
+
+const INDEX_BUSY: MediaIndexState[] = ['queued', 'transcribing', 'translating', 'describing', 'indexing']
+
+function indexBusy(state?: MediaIndexState) {
+  return Boolean(state && INDEX_BUSY.includes(state))
+}
+
+function useNow(active: boolean) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const tick = window.setInterval(() => setNow(Date.now()), 250)
+    return () => window.clearInterval(tick)
+  }, [active])
+  return now
+}
+
+type TimingMsKey = Exclude<keyof MediaIndexTimings, 'cached' | 'model' | 'device'>
+
+const STAGE_ROWS: { key: TimingMsKey; label: string; state?: MediaIndexState }[] = [
+  { key: 'upload_ms', label: 'Upload' },
+  { key: 'queue_ms', label: 'Queue', state: 'queued' },
+  { key: 'extract_ms', label: 'Extract' },
+  { key: 'transcribe_ms', label: 'Transcribe', state: 'transcribing' },
+  { key: 'translate_ms', label: 'Translate', state: 'translating' },
+  { key: 'describe_ms', label: 'Describe', state: 'describing' },
+  { key: 'index_ms', label: 'Index', state: 'indexing' },
+]
+
+function elapsedSince(iso: string | undefined, now: number) {
+  if (!iso) return 0
+  const at = Date.parse(iso)
+  if (!Number.isFinite(at) || at <= 0) return 0
+  return Math.max(0, now - at)
+}
+
+function stageMs(
+  timings: MediaIndexTimings | undefined,
+  key: TimingMsKey,
+  current: boolean,
+  stageStartedAt: string | undefined,
+  now: number,
+) {
+  const recorded = typeof timings?.[key] === 'number' ? Number(timings[key]) : 0
+  const live = current ? elapsedSince(stageStartedAt, now) : 0
+  return Math.max(recorded, live)
+}
+
+function isCurrentStage(asset: MediaAsset, key: TimingMsKey) {
+  if (!indexBusy(asset.indexState)) return false
+  if (asset.indexState === 'transcribing') {
+    const extracted = (asset.indexTimings?.extract_ms ?? 0) > 0
+    if (key === 'extract_ms') return !extracted
+    if (key === 'transcribe_ms') return extracted
+    return false
+  }
+  return STAGE_ROWS.find((row) => row.key === key)?.state === asset.indexState
+}
+
+function IndexStatsCard({ asset, now }: { asset: MediaAsset; now: number }) {
+  const [copied, setCopied] = useState(false)
+  const busy = indexBusy(asset.indexState)
+  const timings = asset.indexTimings
+  const rows = STAGE_ROWS.map((row) => {
+    const current = isCurrentStage(asset, row.key)
+    const ms = stageMs(timings, row.key, current, asset.indexStageStartedAt, now)
+    return { ...row, current, ms }
+  }).filter((row) => row.ms > 0 || row.current)
+
+  const total = timings?.total_ms && !busy
+    ? timings.total_ms
+    : Math.max(timings?.total_ms ?? 0, elapsedSince(asset.indexStartedAt, now), rows.reduce((sum, row) => sum + row.ms, 0))
+  const factor = realtimeFactor(asset.duration, timings?.transcribe_ms ?? 0)
+  const hasCard = rows.length > 0 || busy || (timings?.total_ms ?? 0) > 0 || timings?.cached
+
+  if (!hasCard) return null
+
+  function copyStats() {
+    const lines = [
+      asset.name,
+      asset.duration > 0 ? `Media          ${formatClock(asset.duration)}` : '',
+      ...rows.map((row) => {
+        const extra = row.key === 'transcribe_ms' && factor ? `  (${factor.toFixed(1)}× realtime)` : ''
+        return `${row.label.padEnd(14)}${formatDurationMs(row.ms)}${extra}`
+      }),
+      `Total         ${formatDurationMs(total)}`,
+      timings?.cached ? 'Speech         reused cached transcript' : '',
+      timings?.model ? `Model          ${timings.model}` : '',
+      timings?.device ? `Device         ${timings.device}` : '',
+    ].filter(Boolean)
+    void navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    }).catch(() => undefined)
+  }
+
+  return (
+    <div
+      className="mt-1.5 rounded-md border border-line bg-well px-2 py-1.5"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-[9px] font-medium tracking-[0.14em] text-dim uppercase">
+          {busy ? 'Indexing' : timings?.cached ? 'Cached' : 'Index'}
+        </span>
+        <div className="flex items-center gap-1">
+          <span className="font-mono text-[10px] text-cream">{formatDurationMs(total)}</span>
+          <button
+            type="button"
+            title="Copy timing breakdown"
+            aria-label="Copy timing breakdown"
+            onClick={copyStats}
+            className="grid size-5 place-items-center rounded text-dim transition-colors hover:bg-wash hover:text-cream"
+          >
+            {copied ? <Check size={10} /> : <Copy size={10} />}
+          </button>
+        </div>
+      </div>
+      <div className="grid gap-0.5">
+        {rows.map((row) => (
+          <div key={row.key} className="flex items-center justify-between gap-2">
+            <span className={cn('text-[10px]', row.current ? 'text-live' : 'text-dim')}>
+              {row.label}
+              {row.current ? '…' : ''}
+            </span>
+            <span className={cn('font-mono text-[10px]', row.current ? 'text-live' : 'text-mute')}>
+              {row.key === 'transcribe_ms' && factor && !row.current
+                ? `${formatDurationMs(row.ms)} · ${factor.toFixed(1)}×`
+                : formatDurationMs(row.ms)}
+            </span>
+          </div>
+        ))}
+      </div>
+      {(timings?.model || timings?.device) && (
+        <div className="mt-1 truncate font-mono text-[9px] text-dim">
+          {[timings.model, timings.device].filter(Boolean).join(' · ')}
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -57,6 +57,8 @@ import {
   putSettings,
   streamAgent,
   uploadProjectMedia,
+  describeProjectMedia,
+  formatBytes,
   type ChatRecord,
   type AgentEvent,
   type LLMSettings,
@@ -70,6 +72,7 @@ import {
   type TimelineTransition,
 } from '../lib/api'
 import { TopBar } from './TopBar'
+import { UploadProgressBar, type UploadStatus } from './UploadProgressBar'
 import { ToolRail } from './ToolRail'
 import { MediaPanel } from './MediaPanel'
 import { PreviewStage } from './PreviewStage'
@@ -118,6 +121,7 @@ export function Editor() {
   const [assets, setAssets] = useState<MediaAsset[]>([])
   const [mediaLoading, setMediaLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null)
   const [sessionId, setSessionId] = useState('')
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [createOpen, setCreateOpen] = useState(false)
@@ -446,12 +450,20 @@ export function Editor() {
   }, [bootProject, loadChats])
 
   useEffect(() => {
-    if (!projectId || !assets.some((asset) => indexBusy(asset.indexState))) return
+    if (!projectId || !assets.some((asset) => indexBusy(asset.indexState) || previewBusy(asset.previewState))) return
     const timer = window.setInterval(() => {
       void refreshMedia(projectId, { silent: true })
     }, 2000)
     return () => window.clearInterval(timer)
   }, [assets, projectId, refreshMedia])
+
+  useEffect(() => {
+    if (uploadStatus?.phase !== 'uploading') return
+    const timer = window.setInterval(() => {
+      setUploadStatus((current) => (current ? { ...current } : current))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [uploadStatus?.phase])
 
   useEffect(() => {
     let live = true
@@ -776,6 +788,21 @@ export function Editor() {
     }
   }
 
+  async function describeAsset(asset: MediaAsset) {
+    if (!projectId || !asset.path) return
+    try {
+      await describeProjectMedia(projectId, asset.path)
+      setAssets((current) => current.map((item) =>
+        item.id === asset.id
+          ? { ...item, canDescribe: false, indexState: 'queued', indexProgress: undefined }
+          : item,
+      ))
+      setToast(`Describing scenes in ${asset.name}`)
+    } catch (error) {
+      setToast(errorMessage(error))
+    }
+  }
+
   function applyMediaDuration(assetId: string, nextDuration: number) {
     if (!Number.isFinite(nextDuration) || nextDuration <= 0) return
     setAssets((current) => current.map((asset) =>
@@ -998,18 +1025,55 @@ export function Editor() {
   async function upload(files: File[]) {
     if (!projectId || files.length === 0) return
     setUploading(true)
+    let uploaded = 0
     try {
-      await uploadProjectMedia(projectId, files)
-      const nextAssets = await refreshMedia(projectId)
-      adoptTimeline(await getProjectTimeline(projectId), nextAssets)
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const startedAt = Date.now()
+        setUploadStatus({
+          file: file.name,
+          fileIndex: i,
+          fileCount: files.length,
+          sent: 0,
+          total: file.size,
+          phase: 'uploading',
+          startedAt,
+        })
+        await uploadProjectMedia(projectId, [file], (progress) => {
+          setUploadStatus({
+            file: file.name,
+            fileIndex: i,
+            fileCount: files.length,
+            sent: progress.sent,
+            total: progress.total || file.size,
+            phase: 'uploading',
+            startedAt,
+          })
+        })
+        setUploadStatus((current) => current ? { ...current, sent: file.size, total: file.size, phase: 'saving' } : current)
+        uploaded++
+        const nextAssets = await refreshMedia(projectId)
+        adoptTimeline(await getProjectTimeline(projectId), nextAssets)
+      }
       await refreshHistory(projectId)
       const latest = await listProjects()
       setProjects(latest)
-      setToast(`${files.length} ${files.length === 1 ? 'file' : 'files'} uploaded`)
+      const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
+      setToast(`${files.length} ${files.length === 1 ? 'file' : 'files'} uploaded (${formatBytes(totalBytes)})`)
     } catch (error) {
+      if (uploaded > 0) {
+        try {
+          await refreshHistory(projectId)
+          const latest = await listProjects()
+          setProjects(latest)
+        } catch {
+          // keep the upload error as the toast
+        }
+      }
       setToast(errorMessage(error))
     } finally {
       setUploading(false)
+      setUploadStatus(null)
       if (fileInput.current) fileInput.current.value = ''
     }
   }
@@ -1279,6 +1343,10 @@ export function Editor() {
         projectId={projectId}
         projectName="No project"
         uploading={uploading}
+        uploadLabel={buttonUploadLabel(uploadStatus)}
+        uploadPercent={uploadStatus && uploadStatus.total > 0
+          ? Math.min(100, Math.round((uploadStatus.sent / uploadStatus.total) * 100))
+          : uploading ? 4 : 0}
         onProject={(id) => openProject(id)}
         onCreateProject={() => setCreateOpen(true)}
         onDeleteProject={() => {
@@ -1303,6 +1371,7 @@ export function Editor() {
           setExportOpen(true)
         }}
       />
+      <UploadProgressBar status={uploadStatus} />
       <input
         ref={fileInput}
         type="file"
@@ -1338,6 +1407,7 @@ export function Editor() {
                   onFrame={(id, width, height) => applyMediaFrame(id, width, height)}
                   onAdd={(asset) => addAsset(asset)}
                   onDelete={(asset) => void deleteAsset(asset)}
+                  onDescribe={(asset) => void describeAsset(asset)}
                 />
               )}
             </motion.div>
@@ -1639,6 +1709,15 @@ export function Editor() {
   )
 }
 
+function buttonUploadLabel(status: UploadStatus | null) {
+  if (!status) return 'Uploading…'
+  if (status.phase === 'saving') {
+    return status.fileCount > 1 ? `${status.fileIndex + 1}/${status.fileCount} · Saving` : 'Saving…'
+  }
+  const pct = Math.min(100, Math.round((status.sent / Math.max(status.total, 1)) * 100))
+  return status.fileCount > 1 ? `${status.fileIndex + 1}/${status.fileCount} · ${pct}%` : `${pct}%`
+}
+
 function uid() {
   return Math.random().toString(36).slice(2, 9)
 }
@@ -1704,8 +1783,8 @@ function toMediaAsset(item: ProjectMedia): MediaAsset | null {
     name: item.name,
     kind,
     duration: measured || (item.kind === 'image' ? 5 : 0),
-    thumb: item.kind === 'image' ? url : undefined,
-    src: url,
+    thumb: item.kind === 'image' ? url : (item.preview?.poster_path ? API_BASE + item.preview.poster_path : undefined),
+    src: item.preview?.state === 'ready' && item.preview.url_path ? API_BASE + item.preview.url_path : url,
     path: item.path,
     mediaType,
     width: item.width && item.width > 0 ? item.width : undefined,
@@ -1713,6 +1792,15 @@ function toMediaAsset(item: ProjectMedia): MediaAsset | null {
     indexState: item.transcript?.state,
     indexError: item.transcript?.error,
     indexProgress: item.transcript?.progress,
+    indexTimings: item.transcript?.timings,
+    indexStartedAt: item.transcript?.started_at,
+    indexStageStartedAt: item.transcript?.stage_started_at,
+    previewState: item.preview?.state,
+    previewProgress: item.preview?.progress,
+    previewError: item.preview?.error,
+    previewReason: item.preview?.reason,
+    previewPoster: item.preview?.poster_path ? API_BASE + item.preview.poster_path : undefined,
+    canDescribe: item.transcript?.can_describe === true,
   }
 }
 
@@ -1720,6 +1808,10 @@ const INDEX_BUSY: MediaIndexState[] = ['queued', 'transcribing', 'translating', 
 
 function indexBusy(state?: MediaIndexState) {
   return Boolean(state && INDEX_BUSY.includes(state))
+}
+
+function previewBusy(state?: MediaAsset['previewState']) {
+  return state === 'queued' || state === 'building'
 }
 
 function toHistoryMessage(message: ChatMessage): HistoryMessage {

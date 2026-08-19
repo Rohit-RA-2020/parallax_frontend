@@ -20,6 +20,11 @@ export type Clip = {
   mediaType?: 'video' | 'audio' | 'image' | 'subtitle'
   width?: number
   height?: number
+  previewState?: MediaAsset['previewState']
+  previewProgress?: string
+  previewError?: string
+  previewReason?: string
+  previewPoster?: string
   color: string
   waveSeed?: number
   linkId?: string
@@ -65,6 +70,20 @@ export type MediaIndexState =
   | 'failed'
   | 'skipped'
 
+export type MediaIndexTimings = {
+  upload_ms?: number
+  queue_ms?: number
+  extract_ms?: number
+  transcribe_ms?: number
+  translate_ms?: number
+  describe_ms?: number
+  index_ms?: number
+  total_ms?: number
+  cached?: boolean
+  model?: string
+  device?: string
+}
+
 export type MediaAsset = {
   id: string
   name: string
@@ -79,6 +98,15 @@ export type MediaAsset = {
   indexState?: MediaIndexState
   indexError?: string
   indexProgress?: string
+  indexTimings?: MediaIndexTimings
+  indexStartedAt?: string
+  indexStageStartedAt?: string
+  previewState?: 'original' | 'queued' | 'building' | 'ready' | 'failed'
+  previewProgress?: string
+  previewError?: string
+  previewReason?: string
+  previewPoster?: string
+  canDescribe?: boolean
 }
 
 export type ChatRole = 'user' | 'assistant'

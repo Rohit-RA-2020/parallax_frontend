@@ -21,6 +21,20 @@ export type TranscriptIndexState =
   | 'failed'
   | 'skipped'
 
+export type TranscriptTimings = {
+  upload_ms?: number
+  queue_ms?: number
+  extract_ms?: number
+  transcribe_ms?: number
+  translate_ms?: number
+  describe_ms?: number
+  index_ms?: number
+  total_ms?: number
+  cached?: boolean
+  model?: string
+  device?: string
+}
+
 export type TranscriptIndexStatus = {
   path: string
   state: TranscriptIndexState
@@ -29,6 +43,24 @@ export type TranscriptIndexStatus = {
   progress?: string
   at?: number
   duration?: number
+  timings?: TranscriptTimings
+  can_describe?: boolean
+  started_at?: string
+  stage_started_at?: string
+  updated_at: string
+}
+
+export type PreviewState = 'original' | 'queued' | 'building' | 'ready' | 'failed'
+
+export type MediaPreviewStatus = {
+  path: string
+  state: PreviewState
+  url_path?: string
+  poster_path?: string
+  progress?: string
+  error?: string
+  reason?: string
+  codec?: string
   updated_at: string
 }
 
@@ -45,6 +77,7 @@ export type ProjectMedia = {
   height?: number
   modified_at: string
   transcript?: TranscriptIndexStatus
+  preview?: MediaPreviewStatus
 }
 
 export type ChatRecord = {
@@ -154,14 +187,95 @@ export async function listProjectMedia(projectID: string) {
   return result.media ?? []
 }
 
-export async function uploadProjectMedia(projectID: string, files: File[]) {
-  const form = new FormData()
-  files.forEach((file) => form.append('files', file))
-  const result = await request<{ media: ProjectMedia[] }>(`/v1/projects/${projectID}/media`, {
+export const MAX_UPLOAD_BYTES = 16 * 1024 * 1024 * 1024
+
+export type UploadProgress = {
+  file: string
+  fileIndex: number
+  fileCount: number
+  sent: number
+  total: number
+}
+
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '0 B'
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+  let value = n
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit++
+  }
+  const digits = unit === 0 ? 0 : value < 10 ? 1 : 0
+  return `${value.toFixed(digits)} ${units[unit]}`
+}
+
+export function describeProjectMedia(projectID: string, path: string) {
+  return request<{ ok: boolean; path: string }>(`/v1/projects/${projectID}/media/describe`, {
     method: 'POST',
-    body: form,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
   })
-  return result.media
+}
+
+export async function uploadProjectMedia(
+  projectID: string,
+  files: File[],
+  onProgress?: (progress: UploadProgress) => void,
+) {
+  const out: ProjectMedia[] = []
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    if (file.size > MAX_UPLOAD_BYTES) {
+      throw new Error(`${file.name} is ${formatBytes(file.size)}; max is ${formatBytes(MAX_UPLOAD_BYTES)} per file`)
+    }
+    const media = await uploadProjectFile(projectID, file, (sent, total) => {
+      onProgress?.({
+        file: file.name,
+        fileIndex: i,
+        fileCount: files.length,
+        sent,
+        total: total || file.size,
+      })
+    })
+    out.push(...media)
+  }
+  return out
+}
+
+function uploadProjectFile(
+  projectID: string,
+  file: File,
+  onProgress?: (sent: number, total: number) => void,
+): Promise<ProjectMedia[]> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData()
+    form.append('files', file)
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE}/v1/projects/${projectID}/media`)
+    xhr.timeout = 0
+    onProgress?.(0, file.size)
+    xhr.upload.onprogress = (event) => {
+      onProgress?.(event.loaded, event.total || file.size)
+    }
+    xhr.onload = () => {
+      let body: { media?: ProjectMedia[]; error?: string } = {}
+      try {
+        body = JSON.parse(xhr.responseText || '{}') as { media?: ProjectMedia[]; error?: string }
+      } catch {
+        body = {}
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(body.error || `Upload failed (${xhr.status})`))
+        return
+      }
+      resolve(body.media ?? [])
+    }
+    xhr.onerror = () => reject(new Error(`Network error while uploading ${file.name}`))
+    xhr.ontimeout = () => reject(new Error(`Timed out while uploading ${file.name}`))
+    xhr.onabort = () => reject(new Error(`Upload of ${file.name} was cancelled`))
+    xhr.send(form)
+  })
 }
 
 export function mediaURL(item: ProjectMedia) {

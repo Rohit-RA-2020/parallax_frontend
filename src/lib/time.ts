@@ -21,3 +21,21 @@ export function formatClock(seconds: number): string {
 export function formatRange(start: number, duration: number): string {
   return `${formatClock(start)} – ${formatClock(start + duration)}`
 }
+
+export function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—'
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  const sec = ms / 1000
+  if (sec < 60) return `${sec < 10 ? sec.toFixed(2) : sec.toFixed(1)}s`
+  const minutes = Math.floor(sec / 60)
+  const seconds = sec - minutes * 60
+  if (minutes < 60) return `${minutes}m ${seconds.toFixed(0).padStart(2, '0')}s`
+  const hours = Math.floor(minutes / 60)
+  const remMin = minutes % 60
+  return `${hours}h ${remMin}m`
+}
+
+export function realtimeFactor(mediaSeconds: number, transcribeMs: number): number | null {
+  if (!(mediaSeconds > 0) || !(transcribeMs > 0)) return null
+  return mediaSeconds / (transcribeMs / 1000)
+}

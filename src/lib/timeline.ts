@@ -155,6 +155,11 @@ export function hydrateClip(clip: Clip, assets: MediaAsset[]): Clip {
     mediaType: asset.mediaType ?? clip.mediaType,
     width: asset.width || clip.width,
     height: asset.height || clip.height,
+    previewState: asset.previewState,
+    previewProgress: asset.previewProgress,
+    previewError: asset.previewError,
+    previewReason: asset.previewReason,
+    previewPoster: asset.previewPoster,
   }
   if (asset.duration > 0) {
     next = applySourceDuration(next, asset.duration)

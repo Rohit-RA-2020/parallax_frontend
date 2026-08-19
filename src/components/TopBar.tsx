@@ -13,6 +13,8 @@ type Props = {
   projectId: string
   projectName: string
   uploading: boolean
+  uploadLabel?: string
+  uploadPercent?: number
   exporting?: boolean
   onProject: (id: string) => void
   onCreateProject: () => void
@@ -30,6 +32,8 @@ export function TopBar({
   projectId,
   projectName,
   uploading,
+  uploadLabel,
+  uploadPercent,
   exporting,
   onProject,
   onCreateProject,
@@ -92,13 +96,22 @@ export function TopBar({
           type="button"
           onClick={onUpload}
           disabled={!projectId || uploading}
-          whileHover={reduce ? undefined : { y: -1 }}
-          whileTap={reduce ? undefined : { scale: 0.97 }}
+          whileHover={reduce || uploading ? undefined : { y: -1 }}
+          whileTap={reduce || uploading ? undefined : { scale: 0.97 }}
           transition={softSpring}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-2.5 text-[12px] text-mute transition-colors hover:border-line-strong hover:text-cream disabled:opacity-40"
+          className="relative inline-flex h-8 min-w-[7.5rem] items-center justify-center gap-1.5 overflow-hidden rounded-md border border-line px-2.5 text-[12px] text-mute transition-colors hover:border-line-strong hover:text-cream disabled:opacity-100 disabled:hover:border-line"
         >
-          <Upload size={13} />
-          {uploading ? 'Uploading…' : 'Upload'}
+          {uploading && (
+            <span
+              aria-hidden
+              className="absolute inset-y-0 left-0 bg-live/20"
+              style={{ width: `${Math.max(4, uploadPercent ?? 0)}%` }}
+            />
+          )}
+          <Upload size={13} className="relative" />
+          <span className="relative truncate">
+            {uploading ? (uploadLabel || 'Uploading…') : 'Upload'}
+          </span>
         </motion.button>
         <ThemeToggle />
         <div className="mr-1 hidden items-center gap-2 text-[11px] text-mute md:flex">

@@ -210,10 +210,11 @@ export function PreviewStage({
           }}
         >
           <AnimatePresence initial={false}>
-            {program.video?.clip.mediaType === 'video' && program.video.clip.src ? (
+            {program.video?.clip.mediaType === 'video' && program.video.clip.src && program.video.clip.previewState !== 'queued' && program.video.clip.previewState !== 'building' && program.video.clip.previewState !== 'failed' ? (
               <PreviewVideo
                 key={program.video.clip.src}
                 src={program.video.clip.src}
+                poster={program.video.clip.previewPoster || program.video.clip.thumb}
                 start={program.video.clip.start}
                 sourceIn={program.video.clip.sourceIn ?? 0}
                 currentTime={currentTime}
@@ -223,7 +224,20 @@ export function PreviewStage({
                 visualStyle={pictureStyle}
                 rate={program.video.clip.playback?.rate ?? 1}
                 reduce={!!reduce}
+                fallbackReason={program.video.clip.previewReason || program.video.clip.previewError}
                 onFrame={(width, height) => setDecoded({ width, height })}
+              />
+            ) : program.video && (program.video.clip.previewState === 'queued' || program.video.clip.previewState === 'building' || program.video.clip.previewState === 'failed' || program.video.clip.previewPoster || program.video.clip.thumb) ? (
+              <PreviewPending
+                key={program.video.clip.id + '-pending'}
+                name={program.video.clip.name}
+                poster={program.video.clip.previewPoster || program.video.clip.thumb}
+                state={program.video.clip.previewState}
+                progress={program.video.clip.previewProgress}
+                reason={program.video.clip.previewReason}
+                reduce={!!reduce}
+                filter={pictureFilter}
+                visualStyle={pictureStyle}
               />
             ) : program.video?.clip.thumb ? (
               <motion.img
@@ -419,8 +433,60 @@ function syncMediaClock(
   if (media.paused) void media.play().catch(() => undefined)
 }
 
+function PreviewPending({
+  name,
+  poster,
+  state,
+  progress,
+  reason,
+  reduce,
+  filter,
+  visualStyle,
+}: {
+  name: string
+  poster?: string
+  state?: string
+  progress?: string
+  reason?: string
+  reduce: boolean
+  filter: string
+  visualStyle?: CSSProperties
+}) {
+  const building = state === 'queued' || state === 'building'
+  return (
+    <motion.div
+      initial={reduce ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={reduce ? undefined : { opacity: 0 }}
+      transition={fadeSlow}
+      className="preview-plate absolute inset-0"
+      style={visualStyle}
+    >
+      {poster ? (
+        <img src={poster} alt="" className="size-full object-contain" style={{ filter }} />
+      ) : (
+        <div className="size-full bg-black" />
+      )}
+      <div className="absolute inset-0 grid place-items-center bg-black/55 px-6 text-center">
+        <div>
+          <div className="text-[13px] text-cream">
+            {state === 'failed' ? 'Preview transcode failed' : building ? 'Building browser preview' : name}
+          </div>
+          <div className="mt-1 font-mono text-[11px] text-live">
+            {progress || (building ? 'Starting…' : '')}
+          </div>
+          {(reason || state === 'failed') && (
+            <div className="mt-1 text-[11px] text-mute">{reason || 'The source is still on the timeline for export'}</div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
 function PreviewVideo({
   src,
+  poster,
   start,
   sourceIn,
   currentTime,
@@ -430,9 +496,11 @@ function PreviewVideo({
   visualStyle,
   rate,
   reduce,
+  fallbackReason,
   onFrame,
 }: {
   src: string
+  poster?: string
   start: number
   sourceIn: number
   currentTime: number
@@ -442,9 +510,11 @@ function PreviewVideo({
   visualStyle?: CSSProperties
   rate: number
   reduce: boolean
+  fallbackReason?: string
   onFrame?: (width: number, height: number) => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const [broken, setBroken] = useState(false)
   const startRef = useRef(start)
   const sourceInRef = useRef(sourceIn)
   const currentTimeRef = useRef(currentTime)
@@ -455,6 +525,10 @@ function PreviewVideo({
   currentTimeRef.current = currentTime
   isPlayingRef.current = isPlaying
   onFrameRef.current = onFrame
+
+  useEffect(() => {
+    setBroken(false)
+  }, [src])
 
   useEffect(() => {
     const video = videoRef.current
@@ -480,10 +554,15 @@ function PreviewVideo({
       )
     }
 
+    const onError = () => {
+      if (!cancelled) setBroken(true)
+    }
+
     video.addEventListener('loadedmetadata', onReady)
     video.addEventListener('loadeddata', reportFrame)
     video.addEventListener('resize', reportFrame)
     video.addEventListener('canplay', onReady)
+    video.addEventListener('error', onError)
     if (video.readyState >= HTMLMediaElement.HAVE_METADATA) onReady()
 
     return () => {
@@ -492,6 +571,7 @@ function PreviewVideo({
       video.removeEventListener('loadeddata', reportFrame)
       video.removeEventListener('resize', reportFrame)
       video.removeEventListener('canplay', onReady)
+      video.removeEventListener('error', onError)
     }
   }, [src, rate])
 
@@ -510,15 +590,29 @@ function PreviewVideo({
       className="preview-plate absolute inset-0"
       style={visualStyle}
     >
+      {poster && (
+        <img src={poster} alt="" className="absolute inset-0 size-full object-contain" style={{ filter }} />
+      )}
       <video
         ref={videoRef}
         src={src}
+        poster={poster}
         muted={muted}
         playsInline
         preload="auto"
-        className="size-full object-contain"
-        style={{ filter }}
+        className="relative size-full object-contain"
+        style={{ filter, visibility: broken ? 'hidden' : undefined }}
       />
+      {broken && (
+        <div className="absolute inset-0 grid place-items-center bg-black/70 px-6 text-center">
+          <div>
+            <div className="text-[13px] text-cream">This file cannot play in the browser</div>
+            <div className="mt-1 text-[11px] text-mute">
+              {fallbackReason || 'MKV and HEVC/10-bit sources need a preview transcode'}
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   )
 }
