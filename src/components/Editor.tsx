@@ -1804,6 +1804,8 @@ function toMediaAsset(item: ProjectMedia): MediaAsset | null {
     previewDevice: item.preview?.device,
     previewHardware: item.preview?.hardware,
     previewPipeline: item.preview?.pipeline,
+    previewTimings: item.preview?.timings,
+    previewStartedAt: item.preview?.started_at,
     canDescribe: item.transcript?.can_describe === true,
   }
 }

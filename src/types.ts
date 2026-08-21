@@ -84,6 +84,14 @@ export type MediaIndexTimings = {
   device?: string
 }
 
+export type MediaPreviewTimings = {
+  queue_ms?: number
+  probe_ms?: number
+  poster_ms?: number
+  transcode_ms?: number
+  total_ms?: number
+}
+
 export type MediaAsset = {
   id: string
   name: string
@@ -110,6 +118,8 @@ export type MediaAsset = {
   previewDevice?: string
   previewHardware?: boolean
   previewPipeline?: 'gpu_full' | 'gpu_encode' | 'cpu'
+  previewTimings?: MediaPreviewTimings
+  previewStartedAt?: string
   canDescribe?: boolean
 }
 

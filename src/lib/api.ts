@@ -52,6 +52,14 @@ export type TranscriptIndexStatus = {
 
 export type PreviewState = 'original' | 'queued' | 'building' | 'ready' | 'failed'
 
+export type PreviewTimings = {
+  queue_ms?: number
+  probe_ms?: number
+  poster_ms?: number
+  transcode_ms?: number
+  total_ms?: number
+}
+
 export type MediaPreviewStatus = {
   path: string
   state: PreviewState
@@ -65,6 +73,8 @@ export type MediaPreviewStatus = {
   device?: string
   hardware?: boolean
   pipeline?: 'gpu_full' | 'gpu_encode' | 'cpu'
+  timings?: PreviewTimings
+  started_at?: string
   updated_at: string
 }
 

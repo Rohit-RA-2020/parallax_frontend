@@ -6,7 +6,7 @@ import { cn } from '../lib/cn'
 import { fade, softSpring } from '../lib/motion'
 import { ASSET_MIME, setDraggingAsset } from '../lib/edit'
 import { searchProjectMedia, type MediaSearchHit } from '../lib/api'
-import type { MediaAsset, MediaIndexState, MediaIndexTimings, MediaKind, ToolId } from '../types'
+import type { MediaAsset, MediaIndexState, MediaIndexTimings, MediaKind, MediaPreviewTimings, ToolId } from '../types'
 
 type BinTab = MediaKind | 'all' | 'image'
 
@@ -43,7 +43,7 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [hits, setHits] = useState<MediaSearchHit[]>([])
   const [searching, setSearching] = useState(false)
-  const now = useNow(assets.some((asset) => indexBusy(asset.indexState)))
+  const now = useNow(assets.some((asset) => indexBusy(asset.indexState) || asset.previewState === 'queued' || asset.previewState === 'building'))
 
   const forced = toolFilter[tool]
   const resolvedTab = tabs.some((item) => item.id === tab) ? tab : 'all'
@@ -553,6 +553,15 @@ const STAGE_ROWS: { key: TimingMsKey; label: string; state?: MediaIndexState }[]
   { key: 'index_ms', label: 'Index', state: 'indexing' },
 ]
 
+type PreviewTimingMsKey = keyof MediaPreviewTimings
+
+const PREVIEW_STAGE_ROWS: { key: PreviewTimingMsKey; label: string }[] = [
+  { key: 'queue_ms', label: 'Proxy queue' },
+  { key: 'probe_ms', label: 'Probe' },
+  { key: 'poster_ms', label: 'Poster' },
+  { key: 'transcode_ms', label: 'Decode/scale/encode' },
+]
+
 function elapsedSince(iso: string | undefined, now: number) {
   if (!iso) return 0
   const at = Date.parse(iso)
@@ -597,7 +606,19 @@ function IndexStatsCard({ asset, now }: { asset: MediaAsset; now: number }) {
     ? timings.total_ms
     : Math.max(timings?.total_ms ?? 0, elapsedSince(asset.indexStartedAt, now), rows.reduce((sum, row) => sum + row.ms, 0))
   const factor = realtimeFactor(asset.duration, timings?.transcribe_ms ?? 0)
-  const hasCard = rows.length > 0 || busy || (timings?.total_ms ?? 0) > 0 || timings?.cached
+  const previewBusy = asset.previewState === 'queued' || asset.previewState === 'building'
+  const previewRows = PREVIEW_STAGE_ROWS.map((row) => ({
+    ...row,
+    ms: asset.previewTimings?.[row.key] ?? 0,
+  })).filter((row) => row.ms > 0)
+  const previewTotal = previewBusy
+    ? Math.max(asset.previewTimings?.total_ms ?? 0, elapsedSince(asset.previewStartedAt, now))
+    : (asset.previewTimings?.total_ms ?? 0)
+  const previewFactor = realtimeFactor(asset.duration, asset.previewTimings?.transcode_ms ?? 0)
+  const hasPreviewStats = previewRows.length > 0 || previewTotal > 0
+  const hasIndexStats = rows.length > 0 || busy || (timings?.total_ms ?? 0) > 0 || Boolean(timings?.cached)
+  const hasCard = hasIndexStats || hasPreviewStats || previewBusy
+  const displayTotal = hasIndexStats ? total : previewTotal
 
   if (!hasCard) return null
 
@@ -609,10 +630,17 @@ function IndexStatsCard({ asset, now }: { asset: MediaAsset; now: number }) {
         const extra = row.key === 'transcribe_ms' && factor ? `  (${factor.toFixed(1)}× realtime)` : ''
         return `${row.label.padEnd(14)}${formatDurationMs(row.ms)}${extra}`
       }),
-      `Total         ${formatDurationMs(total)}`,
+      hasIndexStats ? `Total         ${formatDurationMs(total)}` : '',
       timings?.cached ? 'Speech         reused cached transcript' : '',
       timings?.model ? `Model          ${timings.model}` : '',
       timings?.device ? `Device         ${timings.device}` : '',
+      hasPreviewStats ? 'Playback proxy' : '',
+      ...previewRows.map((row) => `${row.label.padEnd(20)}${formatDurationMs(row.ms)}`),
+      hasPreviewStats ? `Proxy total    ${formatDurationMs(previewTotal)}` : '',
+      previewFactor ? `Speed          ${previewFactor.toFixed(1)}× realtime` : '',
+      asset.previewPipeline ? `Pipeline       ${previewPipelineLabel(asset.previewPipeline)}` : '',
+      asset.previewEncoder ? `Encoder        ${asset.previewEncoder}` : '',
+      asset.previewDevice ? `GPU            ${asset.previewDevice}` : '',
     ].filter(Boolean)
     void navigator.clipboard.writeText(lines.join('\n')).then(() => {
       setCopied(true)
@@ -628,10 +656,10 @@ function IndexStatsCard({ asset, now }: { asset: MediaAsset; now: number }) {
     >
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-[9px] font-medium tracking-[0.14em] text-dim uppercase">
-          {busy ? 'Indexing' : timings?.cached ? 'Cached' : 'Index'}
+          {busy ? 'Indexing' : previewBusy ? 'Processing' : hasIndexStats ? (timings?.cached ? 'Cached' : 'Index') : 'Playback'}
         </span>
         <div className="flex items-center gap-1">
-          <span className="font-mono text-[10px] text-cream">{formatDurationMs(total)}</span>
+          <span className="font-mono text-[10px] text-cream">{formatDurationMs(displayTotal)}</span>
           <button
             type="button"
             title="Copy timing breakdown"
@@ -663,8 +691,46 @@ function IndexStatsCard({ asset, now }: { asset: MediaAsset; now: number }) {
           {[timings.model, timings.device].filter(Boolean).join(' · ')}
         </div>
       )}
+      {(hasPreviewStats || previewBusy) && (
+        <>
+          <div className="mt-2 mb-1 flex items-center justify-between border-t border-line pt-1.5">
+            <span className="text-[9px] font-medium tracking-[0.14em] text-dim uppercase">Playback proxy</span>
+            <span className="font-mono text-[10px] text-cream">{formatDurationMs(previewTotal)}</span>
+          </div>
+          <div className="grid gap-0.5">
+            {previewRows.map((row) => (
+              <div key={row.key} className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-[10px] text-dim" title={row.label}>{row.label}</span>
+                <span className="shrink-0 font-mono text-[10px] text-mute">
+                  {row.key === 'transcode_ms' && previewFactor && !previewBusy
+                    ? `${formatDurationMs(row.ms)} · ${previewFactor.toFixed(1)}×`
+                    : formatDurationMs(row.ms)}
+                </span>
+              </div>
+            ))}
+          </div>
+          {(asset.previewPipeline || asset.previewEncoder || asset.previewDevice) && (
+            <div
+              className="mt-1 truncate font-mono text-[9px] text-dim"
+              title={[asset.previewPipeline ? previewPipelineLabel(asset.previewPipeline) : '', asset.previewEncoder, asset.previewDevice].filter(Boolean).join(' · ')}
+            >
+              {[asset.previewPipeline ? previewPipelineShortLabel(asset.previewPipeline) : '', asset.previewEncoder, asset.previewDevice].filter(Boolean).join(' · ')}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
+}
+
+function previewPipelineLabel(pipeline: NonNullable<MediaAsset['previewPipeline']>) {
+  return pipeline === 'gpu_full'
+    ? 'GPU decode + scale + encode'
+    : pipeline === 'gpu_encode' ? 'CPU decode/scale + GPU encode' : 'CPU decode + scale + encode'
+}
+
+function previewPipelineShortLabel(pipeline: NonNullable<MediaAsset['previewPipeline']>) {
+  return pipeline === 'gpu_full' ? 'GPU full' : pipeline === 'gpu_encode' ? 'GPU encode' : 'CPU'
 }
 
 const effectCards = ['Warm tungsten', 'Cool shadow', '16mm grain', 'Halation']
