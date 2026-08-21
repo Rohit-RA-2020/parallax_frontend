@@ -248,6 +248,7 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
                         encoder={asset.previewEncoder}
                         device={asset.previewDevice}
                         hardware={asset.previewHardware}
+                        pipeline={asset.previewPipeline}
                       />
                     </div>
                     <div className="mt-1.5 truncate text-[11px] text-mute transition-colors group-hover:text-cream">
@@ -447,6 +448,7 @@ function PlaybackBadge({
   encoder,
   device,
   hardware,
+  pipeline,
 }: {
   state?: MediaAsset['previewState']
   progress?: string
@@ -454,10 +456,11 @@ function PlaybackBadge({
   encoder?: string
   device?: string
   hardware?: boolean
+  pipeline?: MediaAsset['previewPipeline']
 }) {
   if (!state || state === 'original' || (state === 'ready' && !encoder)) return null
   const busy = state === 'queued' || state === 'building'
-  const mode = encoder ? (hardware ? 'GPU' : 'CPU') : ''
+  const mode = encoder ? (pipeline === 'gpu_full' ? 'GPU full' : hardware ? 'GPU encode' : 'CPU') : ''
   const encodeLabel = [mode, encoder].filter(Boolean).join(' · ')
   const label =
     state === 'queued' ? ['Convert queued', mode].filter(Boolean).join(' · ')
@@ -465,7 +468,11 @@ function PlaybackBadge({
         : state === 'ready' ? encodeLabel
         : state === 'failed' ? 'Playback failed'
           : ''
-  const encodeDetail = [encodeLabel, device].filter(Boolean).join(' · ')
+  const pipelineDetail = pipeline === 'gpu_full'
+    ? 'GPU decode + scale + encode'
+    : pipeline === 'gpu_encode' ? 'CPU decode/scale + GPU encode'
+      : pipeline === 'cpu' ? 'CPU decode + scale + encode' : ''
+  const encodeDetail = [encodeLabel, device, pipelineDetail].filter(Boolean).join(' · ')
   const title = state === 'failed'
     ? [reason || 'Could not convert for timeline playback', encodeDetail].filter(Boolean).join(' · ')
     : [state === 'ready' ? 'Playback proxy ready' : (reason || 'Converting to H.264 for timeline playback'), encodeDetail].filter(Boolean).join(' · ')

@@ -109,6 +109,7 @@ export type MediaAsset = {
   previewEncoder?: string
   previewDevice?: string
   previewHardware?: boolean
+  previewPipeline?: 'gpu_full' | 'gpu_encode' | 'cpu'
   canDescribe?: boolean
 }
 

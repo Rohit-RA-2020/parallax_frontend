@@ -1803,6 +1803,7 @@ function toMediaAsset(item: ProjectMedia): MediaAsset | null {
     previewEncoder: item.preview?.encoder,
     previewDevice: item.preview?.device,
     previewHardware: item.preview?.hardware,
+    previewPipeline: item.preview?.pipeline,
     canDescribe: item.transcript?.can_describe === true,
   }
 }

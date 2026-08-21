@@ -64,6 +64,7 @@ export type MediaPreviewStatus = {
   encoder?: string
   device?: string
   hardware?: boolean
+  pipeline?: 'gpu_full' | 'gpu_encode' | 'cpu'
   updated_at: string
 }
 
