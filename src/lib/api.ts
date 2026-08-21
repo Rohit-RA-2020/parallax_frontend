@@ -61,6 +61,9 @@ export type MediaPreviewStatus = {
   error?: string
   reason?: string
   codec?: string
+  encoder?: string
+  device?: string
+  hardware?: boolean
   updated_at: string
 }
 

@@ -1800,6 +1800,9 @@ function toMediaAsset(item: ProjectMedia): MediaAsset | null {
     previewError: item.preview?.error,
     previewReason: item.preview?.reason,
     previewPoster: item.preview?.poster_path ? API_BASE + item.preview.poster_path : undefined,
+    previewEncoder: item.preview?.encoder,
+    previewDevice: item.preview?.device,
+    previewHardware: item.preview?.hardware,
     canDescribe: item.transcript?.can_describe === true,
   }
 }

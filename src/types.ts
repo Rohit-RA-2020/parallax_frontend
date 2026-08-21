@@ -106,6 +106,9 @@ export type MediaAsset = {
   previewError?: string
   previewReason?: string
   previewPoster?: string
+  previewEncoder?: string
+  previewDevice?: string
+  previewHardware?: boolean
   canDescribe?: boolean
 }
 

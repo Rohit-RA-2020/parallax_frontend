@@ -241,7 +241,14 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
                         {formatClock(asset.duration)}
                       </span>
                       <IndexBadge state={asset.indexState} error={asset.indexError} progress={asset.indexProgress} />
-                      <PlaybackBadge state={asset.previewState} progress={asset.previewProgress} reason={asset.previewReason} />
+                      <PlaybackBadge
+                        state={asset.previewState}
+                        progress={asset.previewProgress}
+                        reason={asset.previewReason}
+                        encoder={asset.previewEncoder}
+                        device={asset.previewDevice}
+                        hardware={asset.previewHardware}
+                      />
                     </div>
                     <div className="mt-1.5 truncate text-[11px] text-mute transition-colors group-hover:text-cream">
                       {asset.name}
@@ -437,24 +444,37 @@ function PlaybackBadge({
   state,
   progress,
   reason,
+  encoder,
+  device,
+  hardware,
 }: {
   state?: MediaAsset['previewState']
   progress?: string
   reason?: string
+  encoder?: string
+  device?: string
+  hardware?: boolean
 }) {
-  if (!state || state === 'original' || state === 'ready') return null
+  if (!state || state === 'original' || (state === 'ready' && !encoder)) return null
   const busy = state === 'queued' || state === 'building'
+  const mode = encoder ? (hardware ? 'GPU' : 'CPU') : ''
+  const encodeLabel = [mode, encoder].filter(Boolean).join(' · ')
   const label =
-    state === 'queued' ? 'Convert queued'
-      : state === 'building' ? (progress ? `Playback ${progress}` : 'Converting')
+    state === 'queued' ? ['Convert queued', mode].filter(Boolean).join(' · ')
+      : state === 'building' ? [`Playback ${progress || 'converting'}`, mode].filter(Boolean).join(' · ')
+        : state === 'ready' ? encodeLabel
         : state === 'failed' ? 'Playback failed'
           : ''
+  const encodeDetail = [encodeLabel, device].filter(Boolean).join(' · ')
+  const title = state === 'failed'
+    ? [reason || 'Could not convert for timeline playback', encodeDetail].filter(Boolean).join(' · ')
+    : [state === 'ready' ? 'Playback proxy ready' : (reason || 'Converting to H.264 for timeline playback'), encodeDetail].filter(Boolean).join(' · ')
   return (
     <span
-      title={state === 'failed' ? (reason || 'Could not convert for timeline playback') : (reason ? `Converting for playback · ${reason}` : 'Converting to H.264 for timeline playback')}
+      title={title}
       className="absolute top-7 left-1 flex max-w-[72%] items-center gap-1 rounded bg-black/70 px-1 py-px text-[9px] leading-none text-plate"
     >
-      <span className={cn('size-1.5 shrink-0 rounded-full', busy && 'animate-pulse bg-live', state === 'failed' && 'bg-mark')} />
+      <span className={cn('size-1.5 shrink-0 rounded-full', busy && 'animate-pulse bg-live', state === 'ready' && (hardware ? 'bg-audio' : 'bg-title'), state === 'failed' && 'bg-mark')} />
       {label ? <span className="truncate text-plate/90">{label}</span> : null}
     </span>
   )
