@@ -660,7 +660,15 @@ function ClipBlock({
               : 'linear-gradient(180deg, #2a2418, #1b1710)',
       }}
     >
-      {clip.mediaType === 'video' && clip.src && clip.kind !== 'audio' && (
+      {clip.mediaType === 'video' && clip.kind !== 'audio' && (clip.previewState === 'queued' || clip.previewState === 'building') && (
+        <>
+          {clip.previewPoster || clip.thumb ? (
+            <img src={clip.previewPoster || clip.thumb} alt="" className="pointer-events-none absolute inset-0 size-full object-cover" />
+          ) : null}
+          <span className="pointer-events-none absolute inset-0 bg-linear-to-t from-black/55 to-black/10" />
+        </>
+      )}
+      {clip.mediaType === 'video' && clip.src && clip.kind !== 'audio' && clip.previewState !== 'queued' && clip.previewState !== 'building' && (
         <>
           <video
             key={`${clip.src}:${clip.sourceIn ?? 0}`}
@@ -690,6 +698,7 @@ function ClipBlock({
       )}
       <span className="relative z-10 flex items-center gap-1 truncate pr-5 pl-1.5 pt-0.5 text-[10px] font-medium text-plate drop-shadow">
         {clip.linkId && <Link2 size={8} className="shrink-0 opacity-80" />}
+        {(clip.previewState === 'queued' || clip.previewState === 'building') ? 'Converting… ' : ''}
         {clip.name}
       </span>
       {selected && (

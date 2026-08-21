@@ -208,7 +208,7 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
                     className="w-full cursor-grab text-left active:cursor-grabbing"
                   >
                     <div className="relative aspect-video overflow-hidden rounded-md border border-line bg-lift">
-                      {asset.mediaType === 'video' && asset.src ? (
+                      {asset.mediaType === 'video' && asset.src && asset.previewState !== 'queued' && asset.previewState !== 'building' ? (
                         <HoverVideo
                           src={asset.src}
                           assetId={asset.id}
@@ -241,10 +241,14 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
                         {formatClock(asset.duration)}
                       </span>
                       <IndexBadge state={asset.indexState} error={asset.indexError} progress={asset.indexProgress} />
+                      <PlaybackBadge state={asset.previewState} progress={asset.previewProgress} reason={asset.previewReason} />
                     </div>
                     <div className="mt-1.5 truncate text-[11px] text-mute transition-colors group-hover:text-cream">
                       {asset.name}
                     </div>
+                    {asset.canDescribe && (
+                      <div className="mt-0.5 text-[10px] text-dim">Speech indexed · scenes optional</div>
+                    )}
                     {asset.path && hitByPath.get(asset.path) && (
                       <div className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-dim">
                         {searchSnippet(hitByPath.get(asset.path))}
@@ -262,7 +266,7 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
                         event.stopPropagation()
                         onDescribe(asset)
                       }}
-                      className="absolute top-1 left-1 z-10 grid size-6 place-items-center rounded-md bg-black/70 text-plate/80 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-live hover:text-ink focus-visible:opacity-100"
+                      className="absolute top-1 right-8 z-10 grid size-6 place-items-center rounded-md bg-black/70 text-plate/80 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-live hover:text-ink focus-visible:opacity-100"
                     >
                       <ScanSearch size={11} />
                     </button>
@@ -426,6 +430,33 @@ function HoverVideo({
       }}
       className="pointer-events-none size-full object-contain"
     />
+  )
+}
+
+function PlaybackBadge({
+  state,
+  progress,
+  reason,
+}: {
+  state?: MediaAsset['previewState']
+  progress?: string
+  reason?: string
+}) {
+  if (!state || state === 'original' || state === 'ready') return null
+  const busy = state === 'queued' || state === 'building'
+  const label =
+    state === 'queued' ? 'Convert queued'
+      : state === 'building' ? (progress ? `Playback ${progress}` : 'Converting')
+        : state === 'failed' ? 'Playback failed'
+          : ''
+  return (
+    <span
+      title={state === 'failed' ? (reason || 'Could not convert for timeline playback') : (reason ? `Converting for playback · ${reason}` : 'Converting to H.264 for timeline playback')}
+      className="absolute top-7 left-1 flex max-w-[72%] items-center gap-1 rounded bg-black/70 px-1 py-px text-[9px] leading-none text-plate"
+    >
+      <span className={cn('size-1.5 shrink-0 rounded-full', busy && 'animate-pulse bg-live', state === 'failed' && 'bg-mark')} />
+      {label ? <span className="truncate text-plate/90">{label}</span> : null}
+    </span>
   )
 }
 

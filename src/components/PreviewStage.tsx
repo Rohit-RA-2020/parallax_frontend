@@ -276,9 +276,6 @@ export function PreviewStage({
             ) : null}
           </AnimatePresence>
 
-          <div className="grain pointer-events-none absolute inset-0" />
-          <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-black/35 via-transparent to-black/10" />
-
           {safeArea && (
             <div className="pointer-events-none absolute inset-[8%] border border-white/25" />
           )}
@@ -470,13 +467,15 @@ function PreviewPending({
       <div className="absolute inset-0 grid place-items-center bg-black/55 px-6 text-center">
         <div>
           <div className="text-[13px] text-cream">
-            {state === 'failed' ? 'Preview transcode failed' : building ? 'Building browser preview' : name}
+            {state === 'failed' ? 'Playback convert failed' : building ? 'Converting for timeline playback' : name}
           </div>
           <div className="mt-1 font-mono text-[11px] text-live">
             {progress || (building ? 'Starting…' : '')}
           </div>
           {(reason || state === 'failed') && (
-            <div className="mt-1 text-[11px] text-mute">{reason || 'The source is still on the timeline for export'}</div>
+            <div className="mt-1 text-[11px] text-mute">
+              {reason || 'The original file stays on the timeline for export'}
+            </div>
           )}
         </div>
       </div>

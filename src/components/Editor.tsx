@@ -114,7 +114,7 @@ export function Editor() {
   pendingRef.current = pending
   const messagesRef = useRef<ChatMessage[]>([])
   messagesRef.current = messages
-  const [grade] = useState<Grade>({ warmth: 0, contrast: 0.15, saturation: 0.1 })
+  const [grade] = useState<Grade>({ warmth: 0, contrast: 0, saturation: 0 })
   const [toast, setToast] = useState<string | null>(null)
   const [projects, setProjects] = useState<ProjectRecord[]>([])
   const [projectId, setProjectId] = useState('')
@@ -2003,6 +2003,11 @@ function syncClipMedia(clips: Clip[], assets: MediaAsset[]) {
       && next.sourceIn === clip.sourceIn
       && next.width === clip.width
       && next.height === clip.height
+      && next.previewState === clip.previewState
+      && next.previewProgress === clip.previewProgress
+      && next.previewError === clip.previewError
+      && next.previewReason === clip.previewReason
+      && next.previewPoster === clip.previewPoster
     ) {
       return clip
     }
