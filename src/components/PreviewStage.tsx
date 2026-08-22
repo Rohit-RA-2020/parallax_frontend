@@ -179,7 +179,7 @@ export function PreviewStage({
           <IconButton label="Safe area" active={safeArea} onClick={onToggleSafe}>
             <Scan size={14} />
           </IconButton>
-          <IconButton label={visualReviewLoading ? 'Reviewing timeline' : 'Review timeline'} onClick={onReviewFull} disabled={!onReviewFull || visualReviewLoading} active={Boolean(visualReview?.findings.length)}>
+          <IconButton label={visualReviewLoading ? 'Reviewing timeline' : 'Review timeline'} onClick={onReviewFull} disabled={!onReviewFull || visualReviewLoading} active={Boolean(visualReview?.findings?.length)}>
             <ScanSearch size={14} />
           </IconButton>
           <IconButton label="Expand preview">
@@ -445,7 +445,8 @@ function VisualReviewDrawer({
   selectedFindingId: string | null
   onSelectFinding?: (finding: VisualReviewFinding) => void
 }) {
-  const selected = review?.findings.find((finding) => finding.id === selectedFindingId) ?? review?.findings[0]
+  const findings = review?.findings ?? []
+  const selected = findings.find((finding) => finding.id === selectedFindingId) ?? findings[0]
   const frames = new Map((review?.frames ?? []).map((frame) => [frame.id, frame]))
   return (
     <div className="chrome max-h-52 shrink-0 overflow-y-auto border-y border-line bg-panel/95 px-3 py-2">
@@ -457,16 +458,16 @@ function VisualReviewDrawer({
         </div>
         <span className={cn(
           'text-[10px]',
-          loading ? 'text-live' : review?.findings.length ? 'text-mark' : 'text-dim',
+          loading ? 'text-live' : findings.length ? 'text-mark' : 'text-dim',
         )}>
-          {loading ? 'Rendering evidence…' : review?.findings.length ? `${review.findings.length} finding${review.findings.length === 1 ? '' : 's'}` : 'No visible issues'}
+          {loading ? 'Rendering evidence…' : findings.length ? `${findings.length} finding${findings.length === 1 ? '' : 's'}` : 'No visible issues'}
         </span>
       </div>
       {error && <div className="mt-1 text-[10px] text-dim">{error}</div>}
-      {review?.findings.length ? (
+      {findings.length ? (
         <div className="mt-2 grid min-w-0 gap-2 lg:grid-cols-[minmax(150px,0.7fr)_minmax(260px,1.3fr)]">
           <div className="flex min-w-0 gap-1 overflow-x-auto">
-            {review.findings.map((finding) => (
+            {findings.map((finding) => (
               <button
                 key={finding.id}
                 type="button"

@@ -442,7 +442,10 @@ export function commitMove(
     return rippleMoveClips(clips, movingIds, destStart, originStart, originDuration, fps)
   }
   const ids = new Set(movingIds)
-  const incoming = clips.filter((clip) => ids.has(clip.id))
+  const delta = destStart - originStart
+  const incoming = clips
+    .filter((clip) => ids.has(clip.id))
+    .map((clip) => clampClip({ ...clip, start: clip.start + delta, autoFit: false }, fps))
   return overwritePlace(clips, incoming, fps)
 }
 

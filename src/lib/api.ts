@@ -446,16 +446,42 @@ export type VisualReview = {
   findings: VisualReviewFinding[]
 }
 
-export function requestVisualReview(projectID: string, body: { revision: number; mode: VisualReviewMode; focus_times?: number[] }) {
-  return request<VisualReview>(`/v1/projects/${projectID}/visual-review`, {
+export function normalizeVisualReview(value: unknown): VisualReview | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<VisualReview>
+  const frames = Array.isArray(candidate.frames)
+    ? candidate.frames.filter((frame): frame is VisualReviewFrame => Boolean(frame && typeof frame === 'object'))
+    : []
+  const findings = Array.isArray(candidate.findings)
+    ? candidate.findings.filter((finding): finding is VisualReviewFinding => Boolean(finding && typeof finding === 'object'))
+    : []
+  return {
+    id: typeof candidate.id === 'string' ? candidate.id : '',
+    project_id: typeof candidate.project_id === 'string' ? candidate.project_id : '',
+    revision: typeof candidate.revision === 'number' ? candidate.revision : 0,
+    mode: candidate.mode === 'full' ? 'full' : 'changed',
+    status: typeof candidate.status === 'string' ? candidate.status : 'degraded',
+    error: typeof candidate.error === 'string' ? candidate.error : undefined,
+    created_at: typeof candidate.created_at === 'string' ? candidate.created_at : '',
+    frames,
+    findings,
+  }
+}
+
+export async function requestVisualReview(projectID: string, body: { revision: number; mode: VisualReviewMode; focus_times?: number[] }) {
+  const result = normalizeVisualReview(await request<unknown>(`/v1/projects/${projectID}/visual-review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
+  }))
+  if (!result) throw new Error('Visual review returned an invalid response')
+  return result
 }
 
-export function getVisualReview(projectID: string, revision: number) {
-  return request<VisualReview>(`/v1/projects/${projectID}/visual-reviews/${revision}`)
+export async function getVisualReview(projectID: string, revision: number) {
+  const result = normalizeVisualReview(await request<unknown>(`/v1/projects/${projectID}/visual-reviews/${revision}`))
+  if (!result) throw new Error('Visual review returned an invalid response')
+  return result
 }
 
 export type ProjectRevision = { id:number; parent_id?:number; actor:'human'|'agent'|'system'; summary:string; chat_id?:string; created_at:string; children?:number[]; checkpoints?:string[] }

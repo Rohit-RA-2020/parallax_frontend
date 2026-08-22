@@ -54,7 +54,7 @@ import {
   mediaURL,
   normalizeSettings,
   normalizeThinkingEffort,
-  putProjectTimeline,
+	putProjectTimeline,
 	requestVisualReview,
   putSettings,
   streamAgent,
@@ -72,7 +72,8 @@ import {
   type SavedChatMessage,
   type HistoryMessage,
   type TimelineTransition,
-  type VisualReview,
+	type VisualReview,
+  normalizeVisualReview,
 } from '../lib/api'
 import { TopBar } from './TopBar'
 import { UploadProgressBar, type UploadStatus } from './UploadProgressBar'
@@ -267,8 +268,10 @@ export function Editor() {
   const editSessionRef = useRef<{
     type: 'move' | 'trim'
     ids: Set<string>
+    before: Clip[]
     originStart: number
     originDuration: number
+    latestStart: number
   } | null>(null)
 
   const refreshMedia = useCallback(async (id: string, opts?: { silent?: boolean }) => {
@@ -604,8 +607,10 @@ export function Editor() {
     editSessionRef.current = {
       type,
       ids: new Set(group.map((clip) => clip.id)),
+      before: clipsRef.current,
       originStart: primary.start,
       originDuration: primary.duration,
+      latestStart: primary.start,
     }
   }, [])
 
@@ -614,13 +619,21 @@ export function Editor() {
     editSessionRef.current = null
     if (!session) return
     setClips((prev) => {
-      const incoming = prev.filter((clip) => session.ids.has(clip.id))
+      // Dragging updates the live preview on every pointer move. Commit from
+      // the drag-start snapshot instead of treating that preview as the
+      // source timeline. This is essential for ripple moves: recalculating a
+      // ripple from already-moved clips can split or overwrite their siblings.
+      const baseline = prev.map((clip) => {
+        if (!session.ids.has(clip.id)) return clip
+        return session.before.find((item) => item.id === clip.id) ?? clip
+      })
+      const incoming = baseline.filter((clip) => session.ids.has(clip.id))
       if (incoming.length === 0) return prev
       if (session.type === 'move') {
         return commitMove(
-          prev,
+          baseline,
           session.ids,
-          incoming[0].start,
+          session.latestStart,
           session.originStart,
           session.originDuration,
           editModeRef.current,
@@ -818,6 +831,9 @@ export function Editor() {
     beginEdit(id, 'move')
     const ids = editSessionRef.current?.ids ?? new Set(linkedIds(clipsRef.current, id))
     const nextStart = snapTime(Math.max(0, start), PROJECT_FPS)
+    if (editSessionRef.current?.type === 'move') {
+      editSessionRef.current.latestStart = nextStart
+    }
     setClips((prev) => prev.map((c) => (
       ids.has(c.id) ? { ...c, start: nextStart } : c
     )))
@@ -2230,7 +2246,7 @@ function visualReviewFromToolOutput(value: unknown, projectId: string): VisualRe
     const encoded = path.split('/').filter(Boolean).map(encodeURIComponent).join('/')
     return { ...item, path: `${API_BASE}/v1/projects/${encodeURIComponent(projectId)}/files/${encoded}` }
   })
-  return { ...(review as VisualReview), frames } as VisualReview
+  return normalizeVisualReview({ ...(review as VisualReview), frames })
 }
 
 function clipUsesAsset(clip: Clip, asset: MediaAsset) {
