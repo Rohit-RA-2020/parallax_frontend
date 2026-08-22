@@ -144,7 +144,7 @@ export type ChatMessage = {
 
 export type DirectorActivity = {
   id: string
-  kind: 'thinking' | 'tool'
+  kind: 'thinking' | 'tool' | 'text'
   status: 'active' | 'success' | 'error'
   title: string
   name?: string

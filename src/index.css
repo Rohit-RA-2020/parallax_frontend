@@ -163,6 +163,207 @@ textarea {
   animation: chat-message-in 0.3s ease forwards;
 }
 
+.markdown-text {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-wrap: anywhere;
+  color: var(--color-mute);
+  scrollbar-width: thin;
+}
+
+.markdown-text > :first-child {
+  margin-top: 0;
+}
+
+.markdown-text > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-text h1,
+.markdown-text h2,
+.markdown-text h3,
+.markdown-text h4,
+.markdown-text h5,
+.markdown-text h6 {
+  margin: 0.8rem 0 0.35rem;
+  color: var(--color-cream);
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.markdown-text h1 { font-size: 1.18em; }
+.markdown-text h2 { font-size: 1.1em; }
+.markdown-text h3 { font-size: 1.04em; }
+.markdown-text h4,
+.markdown-text h5,
+.markdown-text h6 { font-size: 1em; }
+
+.markdown-text p {
+  margin: 0.45rem 0;
+  line-height: 1.65;
+}
+
+.markdown-text ul,
+.markdown-text ol {
+  margin: 0.45rem 0;
+  padding-left: 1.35rem;
+}
+
+.markdown-text ul { list-style: disc; }
+.markdown-text ol { list-style: decimal; }
+.markdown-text li { margin: 0.25rem 0; padding-left: 0.15rem; }
+.markdown-text li > ul,
+.markdown-text li > ol { margin-top: 0.2rem; }
+
+.markdown-text blockquote {
+  margin: 0.65rem 0;
+  border-left: 2px solid var(--color-teal);
+  padding: 0.15rem 0.8rem;
+  color: color-mix(in srgb, var(--color-mute) 84%, var(--color-cream));
+}
+
+.markdown-text hr {
+  margin: 0.85rem 0;
+  border: 0;
+  border-top: 1px solid var(--color-line-strong);
+}
+
+.markdown-text a {
+  overflow-wrap: anywhere;
+  color: var(--color-teal);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--color-teal) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.markdown-text strong { color: var(--color-cream); font-weight: 650; }
+.markdown-text em { color: color-mix(in srgb, var(--color-cream) 82%, var(--color-mute)); }
+
+.markdown-text code {
+  border-radius: 0.25rem;
+  background: var(--color-wash-strong);
+  padding: 0.1rem 0.3rem;
+  color: var(--color-cream);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.markdown-text pre {
+  max-width: 100%;
+  margin: 0.65rem 0;
+  overflow: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--color-ink) 82%, var(--color-wash-strong));
+  padding: 0.75rem;
+  white-space: pre;
+  line-height: 1.55;
+  scrollbar-width: thin;
+}
+
+.markdown-text pre code {
+  display: block;
+  min-width: max-content;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--color-cream);
+  font-size: 0.86em;
+}
+
+.markdown-text table {
+  width: 100%;
+  min-width: 28rem;
+  border-collapse: collapse;
+  margin: 0.65rem 0;
+  font-size: 0.88em;
+  line-height: 1.5;
+}
+
+.markdown-text th,
+.markdown-text td {
+  border: 1px solid var(--color-line);
+  padding: 0.45rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-text th {
+  background: var(--color-wash-strong);
+  color: var(--color-cream);
+  font-weight: 650;
+}
+
+.markdown-text tr:nth-child(even) td { background: color-mix(in srgb, var(--color-wash) 42%, transparent); }
+
+.markdown-text img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  margin: 0.65rem 0;
+}
+
+.markdown-mermaid-placeholder,
+.markdown-mermaid {
+  max-width: 100%;
+  margin: 0.7rem 0;
+  overflow: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  background: var(--color-wash);
+  padding: 0.65rem;
+  text-align: center;
+  scrollbar-width: thin;
+}
+
+.markdown-diagram-label {
+  margin-bottom: 0.35rem;
+  color: var(--color-dim);
+  font-size: 0.72rem;
+  text-align: left;
+}
+
+.markdown-diagram-source {
+  margin: 0;
+  overflow: auto;
+  color: var(--color-mute);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+.markdown-diagram-source code {
+  display: block;
+  min-width: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.markdown-mermaid svg {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown-code-fallback {
+  margin: 0.7rem 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  background: var(--color-wash);
+  padding: 0.7rem;
+  color: var(--color-mute);
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+}
+
 @keyframes chat-message-in {
   from {
     opacity: 0;

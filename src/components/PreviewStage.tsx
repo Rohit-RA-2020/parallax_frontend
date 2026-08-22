@@ -113,7 +113,14 @@ export function PreviewStage({
   const captionText = useMemo(() => {
     if (!captionClip) return ''
     const sourceTime = program.captions?.sourceTime ?? 0
-    return cueAt(captionCues, sourceTime)?.text ?? ''
+    const timedText = cueAt(captionCues, sourceTime)?.text
+    if (timedText) return timedText
+    // C1 also supports manually authored caption cards. Those clips do not
+    // have an SRT source, so use their editable title text directly.
+    if (!captionClip.captions?.source && !captionClip.mediaPath) {
+      return captionClip.title?.text ?? captionClip.name
+    }
+    return ''
   }, [captionClip, captionCues, program.captions?.sourceTime])
 
   useLayoutEffect(() => {
@@ -130,13 +137,16 @@ export function PreviewStage({
   }, [])
 
   const picture = program.video?.clip
+  const pictureWidth = picture?.width ?? 0
+  const pictureHeight = picture?.height ?? 0
   useEffect(() => {
-    setDecoded(
-      picture?.width && picture.height
-        ? { width: picture.width, height: picture.height }
-        : { width: 0, height: 0 },
-    )
-  }, [picture])
+    const next = pictureWidth > 0 && pictureHeight > 0
+      ? { width: pictureWidth, height: pictureHeight }
+      : { width: 0, height: 0 }
+    setDecoded((current) => (
+      current.width === next.width && current.height === next.height ? current : next
+    ))
+  }, [pictureWidth, pictureHeight])
 
   function onWellMove(e: PointerEvent<HTMLDivElement>) {
     if (reduce) return

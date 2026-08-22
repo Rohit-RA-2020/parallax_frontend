@@ -11,8 +11,10 @@
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.7",
+    "dompurify": "^3.4.14",
     "framer-motion": "^13.1.0",
     "lucide-react": "^1.31.0",
+    "marked": "^18.0.10",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "three": "^0.185.1",

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download, ImagePlus, LoaderCircle, Pencil, Plus, PanelRightClose, RotateCcw, Trash2, Wrench, X } from 'lucide-react'
+import { ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download, ImagePlus, LoaderCircle, MessageSquareText, Pencil, Plus, PanelRightClose, RotateCcw, Trash2, Wrench, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ChatMessage, Clip, DirectorActivity } from '../types'
 import type { ChatRecord, LLMProfile, ThinkingEffort } from '../lib/api'
@@ -392,7 +392,7 @@ export function ChatPanel({
           const visibleText = m.role === 'assistant' ? stripThoughtMarkup(m.text) : m.text
           const replyStarted = Boolean(visibleText)
           const streaming = pending && live && replyStarted
-          const beforeResponse = activity.length > 0 && live
+          const beforeResponse = activity.length > 0 && live && pending
           if (beforeResponse) {
             return <Message
               key={m.id}
@@ -410,7 +410,6 @@ export function ChatPanel({
                 <ActivityPanel
                   items={activity}
                   pending={pending}
-                  replyStarted={replyStarted}
                   startedAt={activityStartedAt}
                   reduce={!!reduce}
                 />
@@ -430,6 +429,7 @@ export function ChatPanel({
               onStartEdit={() => setEditingIndex(index)}
               onCancelEdit={() => setEditingIndex(null)}
               onSubmitEdit={onEdit}
+              hideActivity={live && !pending}
             />
           )
         })}
@@ -636,6 +636,7 @@ function Message({
   index,
   reduce,
   activity,
+  hideActivity = false,
   streaming = false,
   pending = false,
   editing = false,
@@ -648,6 +649,7 @@ function Message({
   index: number
   reduce: boolean
   activity?: ReactNode
+  hideActivity?: boolean
   streaming?: boolean
   pending?: boolean
   editing?: boolean
@@ -691,7 +693,7 @@ function Message({
         <span>{mine ? 'You' : 'Director'}</span>
         {message.time && <span className="font-mono">{message.time}</span>}
       </div>
-      {activity ?? (!mine && message.workedMs != null ? (
+      {activity ?? (!hideActivity && !mine && message.workedMs != null ? (
         message.trace?.length
           ? <ActivityPanel items={message.trace} pending={false} startedAt={null} elapsedOverride={message.workedMs} reduce={reduce} />
           : <WorkedDuration value={message.workedMs} />
@@ -759,7 +761,7 @@ function Message({
           </div>
         ) : reply ? (
           <div className={cn(!mine && !reduce && 'chat-message-enter', streaming && !reduce && 'stream-ink')}>
-            {mine ? reply : <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{reply}</MarkdownText>}
+            {mine ? reply : pending ? null : <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{reply}</MarkdownText>}
           </div>
         ) : null}
       </div>
@@ -890,14 +892,12 @@ function WorkedDuration({ value }: { value: number }) {
 function ActivityPanel({
   items,
   pending,
-  replyStarted = false,
   startedAt,
   elapsedOverride,
   reduce,
 }: {
   items: DirectorActivity[]
   pending: boolean
-  replyStarted?: boolean
   startedAt: number | null
   elapsedOverride?: number
   reduce: boolean
@@ -907,12 +907,12 @@ function ActivityPanel({
   const hasThought = items.some((item) => item.kind === 'thinking' && item.detail && !placeholderThought(item.detail))
 
   useEffect(() => {
-    if (!pending || replyStarted) {
+    if (!pending) {
       setExpanded(false)
       return
     }
-    if (hasThought) setExpanded(true)
-  }, [hasThought, pending, replyStarted])
+    if (hasThought || items.length > 0) setExpanded(true)
+  }, [hasThought, items.length, pending])
 
   useEffect(() => {
     if (!startedAt) return
@@ -926,7 +926,7 @@ function ActivityPanel({
   const latest = items[items.length - 1]
   const latestThought = [...items].reverse().find((item) => item.kind === 'thinking' && item.detail && !placeholderThought(item.detail))
   const thoughtLine = latestThought?.detail ? thoughtPreview(latestThought.detail) : ''
-  const label = !replyStarted && thoughtLine ? thoughtLine : compactActivityLabel(latestThought ? 'Thinking' : latest?.title ?? 'Working')
+  const label = thoughtLine || compactActivityLabel(latestThought ? 'Thinking' : latest?.title ?? 'Working')
 
   return (
     <motion.div
@@ -970,6 +970,7 @@ function ActivityPanel({
 
 function ActivityRow({ item, reduce }: { item: DirectorActivity; reduce: boolean }) {
   const tool = item.kind === 'tool'
+  const streamedText = item.kind === 'text'
   const thought = item.kind === 'thinking' && item.detail && !placeholderThought(item.detail)
   const icon = item.status === 'active'
     ? <LoaderCircle size={12} className={cn('text-live', !reduce && 'animate-spin')} />
@@ -977,6 +978,8 @@ function ActivityRow({ item, reduce }: { item: DirectorActivity; reduce: boolean
       ? <CircleAlert size={12} className="text-mark" />
       : tool
         ? <Wrench size={11} className="text-live" />
+        : streamedText
+          ? <MessageSquareText size={11} className="text-live" />
         : thought
           ? <Brain size={11} className="text-live" />
           : <Check size={12} className="text-dim" />
@@ -999,12 +1002,14 @@ function ActivityRow({ item, reduce }: { item: DirectorActivity; reduce: boolean
             <div
               className={cn(
                 'break-words leading-relaxed',
-                item.status === 'error' ? 'text-[9px] text-mark/80' : thought
-                  ? 'max-h-44 overflow-y-auto whitespace-pre-wrap text-[10px] text-dim/80 scroll-thin'
-                  : 'text-[9px] text-dim',
+                item.status === 'error' ? 'text-[9px] text-mark/80' : streamedText
+                  ? 'max-h-44 overflow-y-auto whitespace-pre-wrap text-[10px] text-cream/80 scroll-thin'
+                  : thought
+                    ? 'max-h-44 overflow-y-auto whitespace-pre-wrap text-[10px] text-dim/80 scroll-thin'
+                    : 'text-[9px] text-dim',
               )}
             >
-              {thought ? stripThoughtMarkup(item.detail) : item.detail}
+              {thought || streamedText ? stripThoughtMarkup(item.detail) : item.detail}
             </div>
           )}
           {item.arguments !== undefined && (

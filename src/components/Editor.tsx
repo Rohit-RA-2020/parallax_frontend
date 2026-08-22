@@ -1244,7 +1244,10 @@ export function Editor() {
         }
         if (event.type === 'text' && typeof event.data.delta === 'string') {
           const visible = stripThoughtMarkup(event.data.delta)
-          if (visible) queue.push(visible)
+          if (visible) {
+            queue.push(visible)
+            setActivity((current) => appendLiveTextActivity(current, visible))
+          }
         }
         if (event.type === 'step' && event.data.phase === 'think') {
           const iteration = numberValue(event.data.iteration)
@@ -1302,6 +1305,17 @@ export function Editor() {
           const error = typeof event.data.error === 'string' ? event.data.error : ''
           if (ok && typeof event.data.name === 'string' && MEDIA_GENERATION_TOOLS.has(event.data.name)) {
             void refreshMedia(projectId, { silent: true })
+          }
+          if (ok) {
+            const stagedTimeline = timelineFromToolOutput(event.data.output)
+            if (stagedTimeline) {
+              adoptTimeline(stagedTimeline, assetsRef.current)
+              const review = visualReviewFromToolOutput(event.data.output, projectId)
+              if (review) {
+                setVisualReview(review)
+                setSelectedFindingId(review.findings[0]?.id ?? null)
+              }
+            }
           }
           setActivity((current) => {
             const index = current.findIndex((item) => item.id === `tool-${toolID}`)
@@ -1366,7 +1380,10 @@ export function Editor() {
       setMessages((current) => finishStreamMessage(current, responseID, replyTime, {
         text: streamErrorText(current, responseID, errorMessage(error)),
       }))
-      void refreshMedia(projectId, { silent: true })
+      void (async () => {
+        const nextAssets = await refreshMedia(projectId, { silent: true })
+        await loadTimeline(projectId, nextAssets ?? assetsRef.current)
+      })()
     } finally {
       if (live()) setPending(false)
     }
@@ -1986,6 +2003,23 @@ function applyThinkingActivity(items: DirectorActivity[], data: Record<string, u
   return copy
 }
 
+function appendLiveTextActivity(items: DirectorActivity[], delta: string): DirectorActivity[] {
+  if (!delta) return items
+  const last = items[items.length - 1]
+  if (last?.kind === 'text' && last.status === 'active') {
+    const next = [...items]
+    next[next.length - 1] = { ...last, detail: `${last.detail ?? ''}${delta}` }
+    return next
+  }
+  return [...items, {
+    id: `text-${items.length}-${Date.now()}`,
+    kind: 'text',
+    status: 'active',
+    title: 'Director',
+    detail: delta,
+  }]
+}
+
 function placeholderThought(value: string) {
   return !value.trim() || /^Director (is deciding|decided|is applying)/.test(value)
 }
@@ -2057,6 +2091,32 @@ function activityFromTrace(events?: AgentEvent[]): DirectorActivity[] {
     }
   }
   return items
+}
+
+function timelineFromToolOutput(value: unknown): Awaited<ReturnType<typeof getProjectTimeline>> | null {
+  if (!value || typeof value !== 'object') return null
+  const timeline = (value as Record<string, unknown>).timeline
+  if (!timeline || typeof timeline !== 'object') return null
+  const candidate = timeline as Record<string, unknown>
+  if (!Array.isArray(candidate.clips)) return null
+  return timeline as Awaited<ReturnType<typeof getProjectTimeline>>
+}
+
+function visualReviewFromToolOutput(value: unknown, projectId: string): VisualReview | null {
+  if (!value || typeof value !== 'object') return null
+  const review = (value as Record<string, unknown>).visual_review
+  if (!review || typeof review !== 'object') return null
+  const candidate = review as Record<string, unknown>
+  if (!Array.isArray(candidate.findings) || !Array.isArray(candidate.frames)) return null
+  const frames = candidate.frames.map((frame) => {
+    if (!frame || typeof frame !== 'object') return frame
+    const item = frame as Record<string, unknown>
+    const path = typeof item.path === 'string' ? item.path : ''
+    if (!path || path.startsWith('http://') || path.startsWith('https://')) return frame
+    const encoded = path.split('/').filter(Boolean).map(encodeURIComponent).join('/')
+    return { ...item, path: `${API_BASE}/v1/projects/${encodeURIComponent(projectId)}/files/${encoded}` }
+  })
+  return { ...(review as VisualReview), frames } as VisualReview
 }
 
 function clipUsesAsset(clip: Clip, asset: MediaAsset) {
