@@ -552,12 +552,14 @@ export async function streamAgent(
     images?: { name: string; mime: string; data: string }[]
     messages?: HistoryMessage[]
     thinkingEffort?: ThinkingEffort
+    signal?: AbortSignal
   },
   onEvent: (event: AgentEvent) => void,
 ) {
   const response = await fetch(API_BASE + '/v1/agent/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    signal: input.signal,
     body: JSON.stringify({
       project_id: input.projectID,
       session_id: input.sessionID || undefined,

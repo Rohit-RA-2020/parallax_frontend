@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion'
-import type { ChatMessage, Clip, DirectorActivity, Grade, MediaAsset, MediaIndexState, ToolId } from '../types'
+import type { ChatMessage, ChatPart, Clip, DirectorActivity, Grade, MediaAsset, MediaIndexState, ToolId } from '../types'
 import {
   PROJECT_FPS,
 } from '../data/project'
@@ -153,6 +153,7 @@ export function Editor() {
   const settingsRef = useRef(settings)
   settingsRef.current = settings
   const streamQueueRef = useRef<StreamTextQueue | null>(null)
+  const streamAbortRef = useRef<AbortController | null>(null)
   const streamGenRef = useRef(0)
   useEffect(() => {
     activityRef.current = activity
@@ -160,6 +161,8 @@ export function Editor() {
   useEffect(() => {
     return () => {
       streamGenRef.current += 1
+      streamAbortRef.current?.abort()
+      streamAbortRef.current = null
       streamQueueRef.current?.reset()
     }
   }, [])
@@ -905,6 +908,8 @@ export function Editor() {
 
   function abandonStream() {
     streamGenRef.current += 1
+    streamAbortRef.current?.abort()
+    streamAbortRef.current = null
     streamQueueRef.current?.reset()
     streamQueueRef.current = null
     setPending(false)
@@ -1210,6 +1215,8 @@ export function Editor() {
     abandonStream()
     const gen = streamGenRef.current
     const live = () => streamGenRef.current === gen
+    const abortController = new AbortController()
+    streamAbortRef.current = abortController
     const queue = createStreamTextQueue({
       onAppend(chunk) {
         if (!live()) return
@@ -1220,8 +1227,9 @@ export function Editor() {
     setMessages((m) => [
       ...(resume ? resume.prior : m),
       userMsg,
-      { id: responseID, role: 'assistant', text: '', time: replyTime },
+      { id: responseID, role: 'assistant', text: '', time: replyTime, parts: [] },
     ])
+    activityRef.current = []
     setActivity([])
     setActivityStartedAt(startedAt)
     setDraft('')
@@ -1236,6 +1244,7 @@ export function Editor() {
         images: attached,
         messages: resume?.history,
         thinkingEffort,
+        signal: abortController.signal,
       }, (event) => {
         if (!live()) return
         if (event.type === 'session' && typeof event.data.session_id === 'string') {
@@ -1250,51 +1259,63 @@ export function Editor() {
         }
         if (event.type === 'step' && event.data.phase === 'think') {
           const iteration = numberValue(event.data.iteration)
-          setActivity((current) => [
-            ...current,
-            {
-              id: `think-${iteration ?? current.length}`,
-              kind: 'thinking',
-              status: 'active',
-              title: iteration === 1 ? 'Planning the request' : 'Planning the next step',
-              detail: 'Director is deciding what to inspect or change next.',
-              iteration: iteration ?? undefined,
-            },
-          ])
-          queue.pushBreak()
+          queue.flush()
+          const thinking: DirectorActivity = {
+            id: `think-${iteration ?? activityRef.current.length}`,
+            kind: 'thinking',
+            status: 'active',
+            title: iteration === 1 ? 'Planning the request' : 'Planning the next step',
+            detail: 'Director is deciding what to inspect or change next.',
+            iteration: iteration ?? undefined,
+          }
+          setMessages((current) => appendStreamActivity(current, responseID, thinking))
+          setActivity((current) => {
+            const next = [...current, thinking]
+            activityRef.current = next
+            return next
+          })
         }
         if (event.type === 'thinking') {
-          setActivity((current) => applyThinkingActivity(current, event.data))
+          const next = applyThinkingActivity(activityRef.current, event.data)
+          activityRef.current = next
         }
         if (event.type === 'step' && event.data.phase === 'act') {
           const iteration = numberValue(event.data.iteration)
-          setActivity((current) => [
-            ...current,
-            {
-              id: `act-${iteration ?? current.length}`,
-              kind: 'thinking',
-              status: 'active',
-              title: 'Executing the next action',
-              detail: 'Director is applying the plan through its tools.',
-              iteration: iteration ?? undefined,
-            },
-          ])
+          queue.flush()
+          const action: DirectorActivity = {
+            id: `act-${iteration ?? activityRef.current.length}`,
+            kind: 'thinking',
+            status: 'active',
+            title: 'Executing the next action',
+            detail: 'Director is applying the plan through its tools.',
+            iteration: iteration ?? undefined,
+          }
+          setMessages((current) => appendStreamActivity(current, responseID, action))
+          setActivity((current) => {
+            const next = [...current, action]
+            activityRef.current = next
+            return next
+          })
         }
         if (event.type === 'tool_call' && typeof event.data.name === 'string') {
           const toolID = typeof event.data.id === 'string' ? event.data.id : uid()
           const name = event.data.name
-          setActivity((current) => [
-            ...current,
-            {
-              id: `tool-${toolID}`,
-              kind: 'tool',
-              status: 'active',
-              title: toolLabel(name, event.data.arguments),
-              name,
-              arguments: event.data.arguments,
-              iteration: numberValue(event.data.iteration) ?? undefined,
-            },
-          ])
+          queue.flush()
+          const tool: DirectorActivity = {
+            id: `tool-${toolID}`,
+            kind: 'tool',
+            status: 'active',
+            title: toolLabel(name, event.data.arguments),
+            name,
+            arguments: event.data.arguments,
+            iteration: numberValue(event.data.iteration) ?? undefined,
+          }
+          setMessages((current) => appendStreamActivity(current, responseID, tool))
+          setActivity((current) => {
+            const next = [...current, tool]
+            activityRef.current = next
+            return next
+          })
           setToast(`Director is running ${name.replaceAll('_', ' ')}`)
         }
         if (event.type === 'tool_result') {
@@ -1319,7 +1340,7 @@ export function Editor() {
           setActivity((current) => {
             const index = current.findIndex((item) => item.id === `tool-${toolID}`)
             if (index < 0) {
-              return [
+              const next: DirectorActivity[] = [
                 ...current,
                 {
                   id: `tool-${toolID || uid()}`,
@@ -1330,6 +1351,8 @@ export function Editor() {
                   elapsedMs,
                 },
               ]
+              activityRef.current = next
+              return next
             }
             const next = [...current]
             next[index] = {
@@ -1338,21 +1361,46 @@ export function Editor() {
               detail: error || (ok ? 'Completed.' : 'The tool returned an error.'),
               elapsedMs,
             }
+            activityRef.current = next
             return next
           })
+          setMessages((current) => updateStreamActivity(current, responseID, {
+            id: `tool-${toolID}`,
+            kind: 'tool',
+            status: ok ? 'success' : 'error',
+            title: typeof event.data.name === 'string' ? toolLabel(event.data.name, event.data.arguments) : 'Tool call',
+            detail: error || (ok ? 'Completed.' : 'The tool returned an error.'),
+            elapsedMs,
+          }))
         }
         if (event.type === 'error' && typeof event.data.message === 'string') {
           const message = event.data.message
           streamError = message
-          setActivity((current) => [
-            ...current,
-            { id: `error-${uid()}`, kind: 'tool', status: 'error', title: 'Director stopped with an error', detail: message },
-          ])
+          const errorID = `error-${uid()}`
+          setActivity((current) => {
+            const next = [
+              ...current,
+              { id: errorID, kind: 'tool' as const, status: 'error' as const, title: 'Director stopped with an error', detail: message },
+            ]
+            activityRef.current = next
+            return next
+          })
+          queue.flush()
+          setMessages((current) => appendStreamActivity(current, responseID, {
+            id: errorID,
+            kind: 'tool',
+            status: 'error',
+            title: 'Director stopped with an error',
+            detail: message,
+          }))
         }
         if (event.type === 'done') {
-          setActivity((current) => current.map((item) => (
+          const completed: DirectorActivity[] = activityRef.current.map((item) => (
             item.status === 'active' ? { ...item, status: 'success' } : item
-          )))
+          ))
+          activityRef.current = completed
+          setActivity(completed)
+          setMessages((current) => completeStreamActivities(current, responseID))
         }
       })
       if (streamError) throw new Error(streamError)
@@ -1384,7 +1432,11 @@ export function Editor() {
         await loadTimeline(projectId, nextAssets ?? assetsRef.current)
       })()
     } finally {
-      if (live()) setPending(false)
+      if (streamQueueRef.current === queue) streamQueueRef.current = null
+      if (live()) {
+        if (streamAbortRef.current === abortController) streamAbortRef.current = null
+        setPending(false)
+      }
     }
   }
 
@@ -1917,10 +1969,65 @@ function toHistoryMessage(message: ChatMessage): HistoryMessage {
 function appendStreamText(messages: ChatMessage[], id: string, chunk: string, time: string): ChatMessage[] {
   const index = messages.findIndex((message) => message.id === id)
   if (index < 0) {
-    return [...messages, { id, role: 'assistant', text: chunk, time }]
+    return [...messages, {
+      id,
+      role: 'assistant',
+      text: chunk,
+      time,
+      parts: [{ id: `text-${uid()}`, kind: 'text', text: chunk }],
+    }]
   }
   const next = [...messages]
-  next[index] = { ...next[index], text: next[index].text + chunk }
+  const message = next[index]
+  const parts = [...(message.parts ?? [])]
+  const last = parts[parts.length - 1]
+  if (last?.kind === 'text') {
+    parts[parts.length - 1] = { ...last, text: last.text + chunk }
+  } else {
+    parts.push({ id: `text-${uid()}`, kind: 'text', text: chunk })
+  }
+  next[index] = { ...message, text: message.text + chunk, parts }
+  return next
+}
+
+function appendStreamActivity(messages: ChatMessage[], id: string, activity: DirectorActivity): ChatMessage[] {
+  const index = messages.findIndex((message) => message.id === id)
+  if (index < 0) return messages
+  const next = [...messages]
+  const message = next[index]
+  next[index] = {
+    ...message,
+    parts: [...(message.parts ?? []), { id: `activity-${activity.id}`, kind: 'activity', activity }],
+  }
+  return next
+}
+
+function updateStreamActivity(messages: ChatMessage[], id: string, activity: DirectorActivity): ChatMessage[] {
+  const index = messages.findIndex((message) => message.id === id)
+  if (index < 0) return messages
+  const next = [...messages]
+  const message = next[index]
+  const parts = [...(message.parts ?? [])]
+  const partIndex = parts.findIndex((part): part is Extract<ChatPart, { kind: 'activity' }> => (
+    part.kind === 'activity' && part.activity.id === activity.id
+  ))
+  if (partIndex < 0) return messages
+  const previous = parts[partIndex]
+  if (previous.kind !== 'activity') return messages
+  parts[partIndex] = { ...previous, activity: { ...previous.activity, ...activity } }
+  next[index] = { ...message, parts }
+  return next
+}
+
+function completeStreamActivities(messages: ChatMessage[], id: string): ChatMessage[] {
+  const index = messages.findIndex((message) => message.id === id)
+  if (index < 0) return messages
+  const next = [...messages]
+  const message = next[index]
+  const parts = (message.parts ?? []).map((part) => part.kind === 'activity' && part.activity.status === 'active'
+    ? { ...part, activity: { ...part.activity, status: 'success' as const } }
+    : part)
+  next[index] = { ...message, parts }
   return next
 }
 
@@ -1936,10 +2043,35 @@ function finishStreamMessage(
     : undefined)
   const nextPatch = fallback != null ? { ...patch, text: fallback } : patch
   if (index < 0) {
-    return [...messages, { id, role: 'assistant', text: nextPatch.text ?? '', time, ...nextPatch }]
+    const text = nextPatch.text ?? ''
+    return [...messages, {
+      id,
+      role: 'assistant',
+      text,
+      time,
+      ...nextPatch,
+      ...(text ? { parts: [{ id: `text-${uid()}`, kind: 'text' as const, text }] } : {}),
+    }]
   }
   const next = [...messages]
-  next[index] = { ...next[index], ...nextPatch }
+  const previous = next[index]
+  const updated = { ...previous, ...nextPatch }
+  if (nextPatch.text != null && nextPatch.text !== previous.text) {
+    const parts = [...(previous.parts ?? [])]
+    const last = parts[parts.length - 1]
+    const appended = previous.text && nextPatch.text.startsWith(previous.text)
+      ? nextPatch.text.slice(previous.text.length)
+      : nextPatch.text
+    if (appended) {
+      if (last?.kind === 'text') {
+        parts[parts.length - 1] = { ...last, text: last.text + appended }
+      } else {
+        parts.push({ id: `text-${uid()}`, kind: 'text', text: appended })
+      }
+      updated.parts = parts
+    }
+  }
+  next[index] = updated
   return next
 }
 

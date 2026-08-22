@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download, ImagePlus, LoaderCircle, Pencil, Plus, PanelRightClose, RotateCcw, Trash2, Wrench, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import type { ChatMessage, Clip, DirectorActivity } from '../types'
+import type { ChatMessage, ChatPart, Clip, DirectorActivity } from '../types'
 import type { ChatRecord, LLMProfile, ThinkingEffort } from '../lib/api'
 import { profileLabel } from '../lib/api'
 import { filesToChatImages, type ChatImagePayload } from '../lib/chatImage'
@@ -85,9 +85,6 @@ export function ChatPanel({
   const active = chats.find((chat) => chat.id === chatId)
   const activeModel = models.find((model) => model.id === modelId) ?? models[0]
   const canSend = Boolean(draft.trim() || attachments.length) && !pending
-  const lastMessage = messages[messages.length - 1]
-  const replyStarted = lastMessage?.role === 'assistant' && Boolean(lastMessage.text)
-  const showTyping = pending && !replyStarted && activity.length === 0
 
   useEffect(() => {
     setEditingIndex(null)
@@ -454,39 +451,17 @@ export function ChatPanel({
         )}
         {messages.map((m, index) => {
           const live = index === messages.length - 1 && m.role === 'assistant'
-          const visibleText = m.role === 'assistant' ? stripThoughtMarkup(m.text) : m.text
-          const replyStarted = Boolean(visibleText)
+          const replyStarted = m.role === 'assistant' && live
+            ? Boolean(stripThoughtMarkup(m.text))
+            : Boolean(m.text)
           const streaming = pending && live && replyStarted
-          const beforeResponse = activity.length > 0 && live && pending
-          if (beforeResponse) {
-            return <Message
-              key={m.id}
-              message={m}
-              index={index}
-              reduce={!!reduce}
-              streaming={streaming}
-              pending={pending}
-              editing={editingIndex === index}
-              onRetry={onRetry}
-              onStartEdit={() => setEditingIndex(index)}
-              onCancelEdit={() => setEditingIndex(null)}
-              onSubmitEdit={onEdit}
-              activity={(
-                <ActivityPanel
-                  items={activity}
-                  pending={pending}
-                  startedAt={activityStartedAt}
-                  reduce={!!reduce}
-                />
-              )}
-            />
-          }
           return (
             <Message
               key={m.id}
               message={m}
               index={index}
               reduce={!!reduce}
+              live={live}
               streaming={streaming}
               pending={pending}
               editing={editingIndex === index}
@@ -494,30 +469,12 @@ export function ChatPanel({
               onStartEdit={() => setEditingIndex(index)}
               onCancelEdit={() => setEditingIndex(null)}
               onSubmitEdit={onEdit}
+              activityStartedAt={live ? activityStartedAt : null}
             />
           )
         })}
-        {activity.length > 0 && (messages.length === 0 || messages[messages.length - 1].role !== 'assistant') && (
+        {activity.length > 0 && messages.length === 0 && (
           <ActivityPanel items={activity} pending={pending} startedAt={activityStartedAt} reduce={!!reduce} />
-        )}
-        {showTyping && (
-          <motion.div
-            initial={reduce ? false : { opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-2 text-[12px] text-mute"
-          >
-            <span className="flex gap-1">
-              {[0, 1, 2].map((i) => (
-                <motion.i
-                  key={i}
-                  className="size-1 rounded-full bg-live"
-                  animate={reduce ? undefined : { opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
-                  transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.12 }}
-                />
-              ))}
-            </span>
-            Cutting…
-          </motion.div>
         )}
         {(pending || responseAnchorId) && <div aria-hidden="true" className="pointer-events-none" style={{ height: 'calc(100% - 4rem)' }} />}
       </div>
@@ -700,9 +657,10 @@ function Message({
   message,
   index,
   reduce,
-  activity,
+  live = false,
   streaming = false,
   pending = false,
+  activityStartedAt = null,
   editing = false,
   onRetry,
   onStartEdit,
@@ -712,9 +670,10 @@ function Message({
   message: ChatMessage
   index: number
   reduce: boolean
-  activity?: ReactNode
+  live?: boolean
   streaming?: boolean
   pending?: boolean
+  activityStartedAt?: number | null
   editing?: boolean
   onRetry?: (index: number) => void
   onStartEdit?: () => void
@@ -722,11 +681,13 @@ function Message({
   onSubmitEdit?: (index: number, text: string) => void
 }) {
   const mine = message.role === 'user'
+  const messagePending = pending && live
   const reply = mine ? message.text : stripThoughtMarkup(message.text)
   const [draft, setDraft] = useState(message.text)
   const editor = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
+    if (!mine) return
     if (!editing) {
       setDraft(message.text)
       return
@@ -737,7 +698,7 @@ function Message({
     node.focus()
     node.selectionStart = node.value.length
     node.selectionEnd = node.value.length
-  }, [editing, message.text])
+  }, [editing, message.text, mine])
 
   function submitEdit() {
     const next = draft.trim()
@@ -753,15 +714,21 @@ function Message({
       transition={fade}
       className={cn('group/message flex flex-col gap-1', mine && 'items-end')}
     >
-      <div className="flex items-center gap-2 text-[10px] text-dim">
-        <span>{mine ? 'You' : 'Director'}</span>
-        {message.time && <span className="font-mono">{message.time}</span>}
-      </div>
-      {activity ?? (!mine && message.workedMs != null ? (
+      {mine && <div className="flex items-center text-[10px] text-dim">You</div>}
+      {!mine && message.parts ? (
+        <TranscriptParts
+          parts={message.parts}
+          pending={messagePending}
+          startedAt={activityStartedAt}
+          elapsedOverride={message.workedMs}
+          reduce={reduce}
+          streaming={streaming}
+        />
+      ) : !mine && message.workedMs != null ? (
         message.trace?.length
           ? <ActivityPanel items={message.trace} pending={false} startedAt={null} elapsedOverride={message.workedMs} reduce={reduce} />
           : <WorkedDuration value={message.workedMs} />
-      ) : null)}
+      ) : null}
       <div
         className={cn(
           'max-w-[92%] text-[13px] leading-relaxed',
@@ -823,8 +790,8 @@ function Message({
               </button>
             </div>
           </div>
-        ) : reply ? (
-          <div className={cn(!mine && !reduce && 'chat-message-enter', streaming && !reduce && 'stream-ink')}>
+        ) : reply && !(!mine && message.parts?.length) ? (
+          <div className={cn(!mine && !reduce && 'chat-message-enter', streaming && !reduce && 'stream-text-shimmer')}>
             {mine ? reply : <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{reply}</MarkdownText>}
           </div>
         ) : null}
@@ -832,44 +799,420 @@ function Message({
       {!editing && (
         <MessageActions
           text={reply}
+          mine={mine}
+          time={mine || !live || !pending ? message.time : undefined}
+          copyReady={mine || !streaming}
           canRetry={!mine && !pending && Boolean(onRetry)}
           canEdit={mine && !pending && Boolean(onStartEdit) && Boolean(reply || message.images?.length)}
           onRetry={onRetry ? () => onRetry(index) : undefined}
           onEdit={onStartEdit}
+          reserveCopy={!mine && streaming}
         />
       )}
     </motion.div>
   )
 }
 
+function TranscriptParts({
+  parts,
+  pending,
+  startedAt,
+  elapsedOverride,
+  reduce,
+  streaming,
+}: {
+  parts: ChatPart[]
+  pending: boolean
+  startedAt: number | null
+  elapsedOverride?: number
+  reduce: boolean
+  streaming: boolean
+}) {
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const [finalPartId, setFinalPartId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!startedAt) return
+    const update = () => setElapsedMs(Math.max(0, Date.now() - startedAt))
+    update()
+    if (!pending) return
+    const timer = window.setInterval(update, 1000)
+    return () => window.clearInterval(timer)
+  }, [pending, startedAt])
+
+  const visibleParts = parts.filter(isVisibleTranscriptPart)
+  const lastActivityIndex = visibleParts.findLastIndex((part) => part.kind === 'activity')
+  const latestPart = parts[parts.length - 1]
+  const responseCandidate = pending && latestPart?.kind === 'text' && latestPart.text.trim()
+    ? latestPart
+    : undefined
+  const responseCandidateId = responseCandidate?.id
+
+  useEffect(() => {
+    if (!pending || !responseCandidateId) {
+      setFinalPartId(null)
+      return
+    }
+    if (finalPartId === responseCandidateId) return
+    const timer = window.setTimeout(() => setFinalPartId(responseCandidateId), 500)
+    return () => window.clearTimeout(timer)
+  }, [finalPartId, pending, responseCandidateId])
+
+  if (pending) {
+    const finalPartIndex = finalPartId
+      ? visibleParts.findIndex((part) => part.id === finalPartId)
+      : -1
+    if (finalPartIndex >= 0) {
+      const finalPart = visibleParts[finalPartIndex]
+      if (finalPart.kind === 'text') {
+        const rawFinalIndex = parts.findIndex((part) => part.id === finalPart.id)
+        const intermediateParts = visibleParts.slice(0, finalPartIndex)
+        return (
+          <div className="mt-1 w-full max-w-full space-y-2">
+            {intermediateParts.length > 0 && (
+              <LiveTranscript
+                parts={rawFinalIndex >= 0 ? parts.slice(0, rawFinalIndex) : []}
+                visibleParts={intermediateParts}
+                elapsedMs={elapsedMs}
+                reduce={reduce}
+              />
+            )}
+            <div className="text-[13px] leading-relaxed text-mute">
+              <MarkdownText>{finalPart.text}</MarkdownText>
+            </div>
+          </div>
+        )
+      }
+    }
+    return (
+      <LiveTranscript
+        parts={parts}
+        visibleParts={visibleParts}
+        elapsedMs={elapsedMs}
+        reduce={reduce}
+      />
+    )
+  }
+
+  if (!pending && lastActivityIndex >= 0) {
+    const intermediateParts = visibleParts.slice(0, lastActivityIndex + 1)
+    const finalParts = visibleParts.slice(lastActivityIndex + 1)
+    return (
+      <div className="mt-1 w-full max-w-full space-y-2">
+        <ActivitySummary parts={intermediateParts} elapsedMs={elapsedOverride} reduce={reduce} />
+        {finalParts.map((part) => part.kind === 'text' && part.text ? (
+          <div key={part.id} className="text-[13px] leading-relaxed text-mute">
+            <MarkdownText>{part.text}</MarkdownText>
+          </div>
+        ) : null)}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-1 w-full max-w-full space-y-2">
+      {visibleParts.map((part) => part.kind === 'text' ? (
+        part.text ? (
+          <div key={part.id} className={cn('text-[13px] leading-relaxed text-mute', streaming && !reduce && 'stream-text-shimmer')}>
+            <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{part.text}</MarkdownText>
+          </div>
+        ) : null
+      ) : (
+        <InlineActivity key={part.id} item={part.activity} reduce={reduce} />
+      ))}
+    </div>
+  )
+}
+
+function LiveTranscript({
+  parts,
+  visibleParts,
+  elapsedMs,
+  reduce,
+}: {
+  parts: ChatPart[]
+  visibleParts: ChatPart[]
+  elapsedMs: number
+  reduce: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [displayIndex, setDisplayIndex] = useState(0)
+  const displayIndexRef = useRef(0)
+  const transitionTimer = useRef<number | null>(null)
+  const latestPart = parts[parts.length - 1]
+  const latestIsHidden = Boolean(latestPart && !isVisibleTranscriptPart(latestPart))
+  const liveEntries = visibleParts.map((part) => ({
+    key: `${part.kind}-${part.id}`,
+    label: livePartLabel(part),
+    tool: part.kind === 'activity' && part.activity.kind === 'tool',
+  }))
+  if (!liveEntries.length || latestIsHidden) {
+    liveEntries.push({ key: 'thinking', label: 'Thinking', tool: false })
+  }
+  const maxDisplayIndex = liveEntries.length - 1
+  const currentEntry = liveEntries[Math.min(displayIndex, maxDisplayIndex)] ?? liveEntries[0]
+  const canExpand = visibleParts.length > 0
+  const currentTool = currentEntry.tool
+
+  useEffect(() => {
+    if (displayIndexRef.current > maxDisplayIndex) {
+      displayIndexRef.current = maxDisplayIndex
+      setDisplayIndex(maxDisplayIndex)
+      if (transitionTimer.current != null) {
+        window.clearTimeout(transitionTimer.current)
+        transitionTimer.current = null
+      }
+      return
+    }
+    if (displayIndexRef.current >= maxDisplayIndex || transitionTimer.current != null) return
+    transitionTimer.current = window.setTimeout(() => {
+      transitionTimer.current = null
+      setDisplayIndex((current) => {
+        const next = Math.min(current + 1, maxDisplayIndex)
+        displayIndexRef.current = next
+        return next
+      })
+    }, 520)
+  }, [maxDisplayIndex, displayIndex])
+
+  useEffect(() => () => {
+    if (transitionTimer.current != null) window.clearTimeout(transitionTimer.current)
+  }, [])
+
+  return (
+    <div className="mt-1 w-full max-w-full">
+      <button
+        type="button"
+        onClick={() => canExpand && setExpanded((value) => !value)}
+        disabled={!canExpand}
+        aria-expanded={expanded}
+        aria-label={expanded ? 'Hide activity timeline' : 'Show activity timeline'}
+        className={cn(
+          'flex h-6 w-full min-w-0 items-center gap-1.5 text-left transition-colors',
+          canExpand ? 'cursor-pointer hover:text-cream' : 'cursor-default',
+        )}
+      >
+        <LoaderCircle size={10} className={cn('shrink-0', currentTool ? 'text-dim' : 'text-live', !reduce && 'animate-spin')} />
+        <AnimatePresence initial={false} mode="wait">
+          <motion.span
+            key={currentEntry.key}
+            initial={reduce ? false : { opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduce ? undefined : { opacity: 0, y: -4 }}
+            transition={{ duration: reduce ? 0 : 0.16, ease: 'easeOut' }}
+            className={cn(
+              'min-w-0 flex-1 truncate text-[11px] leading-5',
+              currentTool ? 'trace-tool' : 'text-mute',
+              !currentTool && !reduce && 'stream-text-shimmer',
+            )}
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {currentEntry.label}
+          </motion.span>
+        </AnimatePresence>
+        <span className="shrink-0 font-mono text-[8px] text-dim/70">{formatWorkDuration(elapsedMs)}</span>
+        {canExpand && <ChevronRight size={11} className={cn('shrink-0 text-dim transition-transform', expanded && 'rotate-90')} />}
+      </button>
+      <AnimatePresence initial={false}>
+        {expanded && canExpand && (
+          <motion.div
+            initial={reduce ? false : { opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={reduce ? undefined : { opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <ActivityTimeline parts={visibleParts} reduce={reduce} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function livePartLabel(part: ChatPart) {
+  if (part.kind === 'activity') return part.activity.title
+  const text = stripThoughtMarkup(part.text).replace(/\s+/g, ' ').trim()
+  if (!text) return 'Thinking'
+  return text.length > 140 ? `${text.slice(0, 140)}…` : text
+}
+
+function ActivitySummary({
+  parts,
+  elapsedMs,
+  reduce,
+}: {
+  parts: ChatPart[]
+  elapsedMs?: number
+  reduce: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const visibleParts = parts.filter(isVisibleTranscriptPart)
+
+  return (
+    <div className="w-full max-w-full">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-label={expanded ? 'Hide activity' : 'Show activity'}
+        className="inline-flex max-w-full items-center gap-1.5 text-left text-[12px] leading-4 text-dim transition-colors hover:text-mute"
+      >
+        <Check size={18} className="shrink-0 text-dim" />
+        <span className="text-[12px]">Worked for {formatWorkDuration(elapsedMs ?? 0)}</span>
+        <ChevronRight size={18} className={cn('shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={reduce ? false : { opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={reduce ? undefined : { opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <ActivityTimeline parts={visibleParts} reduce={reduce} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function ActivityTimeline({ parts, reduce }: { parts: ChatPart[]; reduce: boolean }) {
+  return (
+    <div className="activity-timeline relative ml-1 mt-3 pl-6">
+      <span aria-hidden className="activity-timeline-rail" />
+      <div className="space-y-3.5">
+        {parts.map((part) => {
+          const content = part.kind === 'text'
+            ? (part.text ? <div className="activity-timeline-text"><MarkdownText>{part.text}</MarkdownText></div> : null)
+            : <InlineActivity item={part.activity} reduce={reduce} />
+          if (!content) return null
+          const active = part.kind === 'activity' && part.activity.status === 'active'
+          const error = part.kind === 'activity' && part.activity.status === 'error'
+          const dotClass = error
+            ? 'activity-timeline-dot-error'
+            : active
+              ? 'activity-timeline-dot-active'
+              : 'activity-timeline-dot-complete'
+          return (
+            <div key={part.id} className="activity-timeline-item relative">
+              <span aria-hidden className={cn('activity-timeline-dot', dotClass)}>
+                {active && <span className="activity-timeline-dot-pulse" />}
+              </span>
+              {content}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function InlineActivity({ item, reduce }: { item: DirectorActivity; reduce: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const phase = item.kind === 'thinking'
+  const tool = item.kind === 'tool'
+  const thought = item.kind === 'thinking' && item.detail && !placeholderThought(item.detail)
+  const icon = item.status === 'active'
+    ? <LoaderCircle size={phase ? 11 : 9} className={cn(phase ? 'text-live' : 'text-dim', !reduce && 'animate-spin')} />
+    : item.status === 'error'
+      ? <CircleAlert size={11} className="text-mark" />
+      : tool
+        ? <Wrench size={9} className="text-dim/75" />
+        : thought
+          ? <Brain size={10} className="text-live" />
+          : <Check size={11} className="text-dim" />
+
+  return (
+    <div className="w-full max-w-full">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        className={cn(
+          'activity-inline-row inline-flex max-w-full items-center gap-1.5 text-left leading-4 transition-colors hover:text-cream',
+          phase ? 'text-[11px] text-mute' : 'text-[9px] text-dim/85',
+          !phase && 'trace-tool',
+          item.status === 'error' && 'text-mark/90',
+        )}
+      >
+        <span className="activity-inline-icon grid size-3.5 shrink-0 place-items-center">{icon}</span>
+        <span className={cn('min-w-0 truncate', phase && item.status === 'active' && !reduce && 'activity-shimmer')}>{item.title}</span>
+        {item.elapsedMs != null && <span className="shrink-0 font-mono text-[8px] text-dim/70">{formatElapsed(item.elapsedMs)}</span>}
+        <ChevronRight size={phase ? 11 : 9} className={cn('shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+      <AnimatePresence initial={false}>
+        {expanded && (item.detail || item.arguments !== undefined) && (
+          <motion.div
+            initial={reduce ? false : { opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={reduce ? undefined : { opacity: 0, height: 0 }}
+            className="activity-inline-detail ml-1 mt-1 max-w-full py-1 pl-4 text-[9px] text-dim"
+          >
+            {item.detail && <div className={cn('activity-inline-detail-copy break-words whitespace-pre-wrap leading-relaxed', thought && 'max-h-44 overflow-y-auto scroll-thin')}>{thought ? stripThoughtMarkup(item.detail) : item.detail}</div>}
+            {item.arguments !== undefined && (
+              <details className="group mt-1">
+                <summary className="activity-arguments-summary cursor-pointer text-[9px] text-dim hover:text-mute">Show arguments</summary>
+                <pre className="activity-arguments mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words p-0 font-mono text-[9px] leading-relaxed text-dim scroll-thin">{formatArguments(item.arguments)}</pre>
+              </details>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function isVisibleTranscriptPart(part: ChatPart) {
+  return part.kind === 'text' || part.activity.kind === 'tool'
+}
+
 function MessageActions({
   text,
+  mine,
+  time,
+  copyReady,
   canRetry,
   canEdit,
   onRetry,
   onEdit,
+  reserveCopy,
 }: {
   text: string
+  mine: boolean
+  time?: string
+  copyReady: boolean
   canRetry: boolean
   canEdit?: boolean
   onRetry?: () => void
   onEdit?: () => void
+  reserveCopy?: boolean
 }) {
   const [copied, setCopied] = useState(false)
-  const canCopy = Boolean(text.trim())
+  const copiedTimer = useRef<number | null>(null)
+  const canCopy = copyReady && Boolean(text.trim())
+
+  useEffect(() => () => {
+    if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current)
+  }, [])
 
   async function copy() {
     if (!canCopy) return
     const ok = await copyText(text)
     if (!ok) return
     setCopied(true)
-    window.setTimeout(() => setCopied(false), 1400)
+    if (copiedTimer.current != null) window.clearTimeout(copiedTimer.current)
+    copiedTimer.current = window.setTimeout(() => {
+      copiedTimer.current = null
+      setCopied(false)
+    }, 1400)
   }
 
-  if (!canCopy && !canRetry && !canEdit) return null
+  if (!canCopy && !canRetry && !canEdit && !reserveCopy && !time) return null
 
   return (
-    <div className="flex items-center gap-0.5">
+    <div className={cn('flex min-h-6 items-center gap-0.5', mine ? 'w-fit self-end' : 'w-full')}>
       {canCopy && (
         <ActionIcon
           label={copied ? 'Copied' : 'Copy'}
@@ -878,6 +1221,7 @@ function MessageActions({
           {copied ? <Check size={11} /> : <Copy size={11} />}
         </ActionIcon>
       )}
+      {reserveCopy && !canCopy && <span aria-hidden className="size-6" />}
       {canEdit && (
         <ActionIcon label="Edit" onClick={onEdit}>
           <Pencil size={11} />
@@ -891,6 +1235,7 @@ function MessageActions({
           <RotateCcw size={11} />
         </ActionIcon>
       )}
+      {time && <span className="ml-auto font-mono text-[9px] text-dim">{time}</span>}
     </div>
   )
 }
@@ -950,130 +1295,38 @@ async function copyText(text: string) {
 }
 
 function WorkedDuration({ value }: { value: number }) {
-  return <div className="mt-1 w-full border-t border-dotted border-line/80 px-0 pt-1 text-[9px] text-mute">Worked for {formatWorkDuration(value)}</div>
+  return <div className="mt-1 w-full border-t border-dotted border-line/60 px-0 pt-1 text-[8px] text-dim">Worked for {formatWorkDuration(value)}</div>
 }
 
 function ActivityPanel({
   items,
   pending,
-  startedAt,
   elapsedOverride,
   reduce,
 }: {
   items: DirectorActivity[]
   pending: boolean
-  startedAt: number | null
+  startedAt?: number | null
   elapsedOverride?: number
   reduce: boolean
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const [elapsedMs, setElapsedMs] = useState(0)
-
-  useEffect(() => {
-    setExpanded(false)
-  }, [pending, startedAt])
-
-  useEffect(() => {
-    if (!startedAt) return
-    const update = () => setElapsedMs(Math.max(0, Date.now() - startedAt))
-    update()
-    if (!pending) return
-    const timer = window.setInterval(update, 1000)
-    return () => window.clearInterval(timer)
-  }, [pending, startedAt])
-
-  const label = 'Working…'
-
+  if (pending) {
+    const item = items[items.length - 1] ?? {
+      id: 'working',
+      kind: 'thinking' as const,
+      status: 'active' as const,
+      title: 'Working…',
+    }
+    return <InlineActivity item={item} reduce={reduce} />
+  }
   return (
-    <motion.div
-      initial={reduce ? false : { opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="mt-1 w-full max-w-full border-t border-dotted border-line/80 pt-1 opacity-70"
-    >
-      <button
-        type="button"
-        onClick={() => setExpanded((value) => !value)}
-        aria-expanded={expanded}
-        aria-label={pending ? `Director is ${label}` : `Show ${items.length} Director steps`}
-        className="flex w-full max-w-full items-center gap-1 rounded px-0 py-0 text-left text-[8px] text-dim transition-colors hover:bg-wash"
-      >
-        {pending ? (
-          <>
-            <LoaderCircle size={11} className={cn('shrink-0 text-live', !reduce && 'animate-spin')} />
-            <span className="min-w-0 truncate text-dim">{label}</span>
-            <span className="ml-auto shrink-0 font-mono text-[7px] text-dim">{formatWorkDuration(elapsedMs)}</span>
-          </>
-        ) : (
-          <span className="shrink-0 text-[9px] text-mute">Worked for {formatWorkDuration(elapsedOverride ?? elapsedMs)}</span>
-        )}
-        <ChevronRight size={11} className={cn('shrink-0 transition-transform', expanded && 'rotate-90')} />
-      </button>
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            initial={reduce ? false : { height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={reduce ? undefined : { height: 0, opacity: 0 }}
-            className="ml-2 space-y-1 border-l border-line/40 py-1 pl-2"
-          >
-            {items.map((item) => <ActivityRow key={item.id} item={item} reduce={reduce} />)}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  )
-}
-
-function ActivityRow({ item, reduce }: { item: DirectorActivity; reduce: boolean }) {
-  const tool = item.kind === 'tool'
-  const thought = item.kind === 'thinking' && item.detail && !placeholderThought(item.detail)
-  const icon = item.status === 'active'
-    ? <LoaderCircle size={12} className={cn('text-live', !reduce && 'animate-spin')} />
-    : item.status === 'error'
-      ? <CircleAlert size={12} className="text-mark" />
-      : tool
-        ? <Wrench size={11} className="text-live" />
-        : thought
-          ? <Brain size={11} className="text-live" />
-          : <Check size={12} className="text-dim" />
-
-  return (
-    <div className="rounded-md px-1 py-1 text-[10px] text-dim transition-colors hover:bg-wash">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="grid size-4 shrink-0 place-items-center text-dim">
-          {icon}
-        </span>
-        <span className={cn('min-w-0 flex-1 truncate', item.status === 'error' ? 'text-mark/90' : 'text-mute')}>
-          {item.title}
-        </span>
-        {item.iteration != null && <span className="shrink-0 font-mono text-[9px] text-dim">#{item.iteration}</span>}
-        {item.elapsedMs != null && <span className="shrink-0 font-mono text-[9px] text-dim">{formatElapsed(item.elapsedMs)}</span>}
-      </div>
-      {(item.detail || item.arguments !== undefined) && (
-        <div className="mt-1 ml-6 min-w-0 space-y-1">
-          {item.detail && (
-            <div
-              className={cn(
-                'break-words leading-relaxed',
-                item.status === 'error' ? 'text-[9px] text-mark/80' : thought
-                  ? 'max-h-44 overflow-y-auto whitespace-pre-wrap text-[10px] text-dim/80 scroll-thin'
-                  : 'text-[9px] text-dim',
-              )}
-            >
-              {thought ? stripThoughtMarkup(item.detail) : item.detail}
-            </div>
-          )}
-          {item.arguments !== undefined && (
-            <details className="group">
-              <summary className="cursor-pointer text-[9px] text-dim hover:text-mute">Show arguments</summary>
-              <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-wash-strong p-1.5 font-mono text-[9px] leading-relaxed text-dim scroll-thin">
-                {formatArguments(item.arguments)}
-              </pre>
-            </details>
-          )}
-        </div>
-      )}
-    </div>
+    <ActivitySummary
+      parts={items
+        .filter((item) => item.kind === 'tool')
+        .map((item) => ({ id: `activity-${item.id}`, kind: 'activity' as const, activity: item }))}
+      elapsedMs={elapsedOverride}
+      reduce={reduce}
+    />
   )
 }
 

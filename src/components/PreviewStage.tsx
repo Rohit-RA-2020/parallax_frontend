@@ -9,7 +9,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import type { Clip, Grade } from '../types'
 import type { VisualReview, VisualReviewFinding } from '../lib/api'
@@ -19,10 +19,11 @@ import { DEFAULT_FRAME, fitContain, resolutionLabel } from '../lib/frame'
 import { programLabel, type ProgramFrame } from '../lib/program'
 import { formatRange, formatTimecode } from '../lib/time'
 import { fadeSlow, softSpring } from '../lib/motion'
-import { Atmosphere } from './Atmosphere'
 import { IconButton } from './ui'
 import { cn } from '../lib/cn'
 import { propertyAt } from '../lib/keyframes'
+
+const Atmosphere = lazy(() => import('./Atmosphere').then(({ Atmosphere: component }) => ({ default: component })))
 
 type Props = {
   currentTime: number
@@ -214,7 +215,9 @@ export function PreviewStage({
             ) : null
           ))}
         </div>
-        <Atmosphere playing={isPlaying} />
+        <Suspense fallback={null}>
+          <Atmosphere playing={isPlaying} />
+        </Suspense>
         <motion.div
           className="relative z-10 overflow-hidden rounded-sm bg-black shadow-[0_0_0_1px_var(--preview-ring),0_30px_80px_var(--preview-glow)]"
           animate={fitted.width > 0 ? { width: fitted.width, height: fitted.height } : undefined}

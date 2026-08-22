@@ -140,7 +140,12 @@ export type ChatMessage = {
   images?: ChatImage[]
   workedMs?: number
   trace?: DirectorActivity[]
+  parts?: ChatPart[]
 }
+
+export type ChatPart =
+  | { id: string; kind: 'text'; text: string }
+  | { id: string; kind: 'activity'; activity: DirectorActivity }
 
 export type DirectorActivity = {
   id: string

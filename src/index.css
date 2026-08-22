@@ -392,9 +392,172 @@ textarea {
   );
 }
 
+.stream-text-shimmer {
+  mask-image: linear-gradient(105deg, #000 28%, rgb(0 0 0 / 0.42) 48%, #000 68%);
+  mask-size: 230% 100%;
+  mask-position: 180% 0;
+  -webkit-mask-image: linear-gradient(105deg, #000 28%, rgb(0 0 0 / 0.42) 48%, #000 68%);
+  -webkit-mask-size: 230% 100%;
+  -webkit-mask-position: 180% 0;
+  animation: stream-text-shimmer 2.2s ease-in-out infinite;
+}
+
+@keyframes stream-text-shimmer {
+  0%, 100% {
+    mask-position: 180% 0;
+    -webkit-mask-position: 180% 0;
+  }
+  50% {
+    mask-position: -30% 0;
+    -webkit-mask-position: -30% 0;
+  }
+}
+
 .stream-glyph {
   opacity: 0;
   animation: stream-glyph-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.activity-shimmer {
+  background: linear-gradient(100deg, var(--color-mute) 20%, var(--color-cream) 45%, var(--color-mute) 70%);
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: activity-shimmer 1.8s linear infinite;
+}
+
+.trace-tool {
+  font-size: 0.625rem;
+  line-height: 1rem;
+  color: color-mix(in srgb, var(--color-dim) 82%, transparent);
+  opacity: 0.82;
+}
+
+.trace-tool:hover {
+  opacity: 1;
+}
+
+.activity-timeline-rail {
+  position: absolute;
+  top: 0.45rem;
+  bottom: 0.45rem;
+  left: 0.28rem;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--color-line-strong) 0.65rem,
+    var(--color-line-strong) calc(100% - 0.65rem),
+    transparent
+  );
+}
+
+.activity-timeline-item {
+  min-height: 1.25rem;
+}
+
+.activity-timeline-dot {
+  position: absolute;
+  top: 0.27rem;
+  left: -1.43rem;
+  display: grid;
+  width: 0.625rem;
+  height: 0.625rem;
+  place-items: center;
+  border: 1px solid;
+  border-radius: 999px;
+  background: var(--color-panel);
+  box-shadow: 0 0 0 3px var(--color-panel);
+}
+
+.activity-timeline-dot-complete {
+  border-color: var(--color-line-strong);
+}
+
+.activity-timeline-dot-active {
+  border-color: color-mix(in srgb, var(--color-live) 78%, transparent);
+  background: color-mix(in srgb, var(--color-live) 12%, var(--color-panel));
+  box-shadow:
+    0 0 0 3px var(--color-panel),
+    0 0 0 4px color-mix(in srgb, var(--color-live) 10%, transparent);
+}
+
+.activity-timeline-dot-error {
+  border-color: color-mix(in srgb, var(--color-mark) 78%, transparent);
+  background: color-mix(in srgb, var(--color-mark) 10%, var(--color-panel));
+}
+
+.activity-timeline-dot-pulse {
+  width: 0.2rem;
+  height: 0.2rem;
+  border-radius: 999px;
+  background: var(--color-live);
+  animation: timeline-dot-pulse 1.7s ease-in-out infinite;
+}
+
+.activity-timeline-text {
+  color: var(--color-mute);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.activity-inline-row {
+  min-height: 1.25rem;
+}
+
+.activity-inline-icon {
+  opacity: 0.9;
+}
+
+.activity-inline-detail {
+  border-left: 1px solid var(--color-line);
+  color: var(--color-dim);
+}
+
+.activity-inline-detail-copy {
+  color: color-mix(in srgb, var(--color-mute) 86%, transparent);
+}
+
+.activity-arguments-summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--color-dim);
+}
+
+.activity-arguments-summary::before {
+  content: '▾';
+  color: var(--color-mute);
+  font-size: 0.65rem;
+  transition: transform 0.16s ease;
+}
+
+.activity-arguments-summary::-webkit-details-marker {
+  display: none;
+}
+
+details:not([open]) .activity-arguments-summary::before {
+  transform: rotate(-90deg);
+}
+
+.activity-arguments {
+  color: color-mix(in srgb, var(--color-mute) 78%, transparent);
+}
+
+@keyframes timeline-dot-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.82); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes activity-shimmer {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
 }
 
 @keyframes stream-glyph-in {
@@ -418,8 +581,24 @@ textarea {
     animation: none;
   }
 
+  .activity-shimmer {
+    background: none;
+    color: inherit;
+    animation: none;
+  }
+
+  .activity-timeline-dot-pulse {
+    animation: none;
+  }
+
   .stream-ink {
     mask-image: none;
     -webkit-mask-image: none;
+  }
+
+  .stream-text-shimmer {
+    mask-image: none;
+    -webkit-mask-image: none;
+    animation: none;
   }
 }

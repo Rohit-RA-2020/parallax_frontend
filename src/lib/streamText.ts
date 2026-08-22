@@ -7,6 +7,7 @@
 export type StreamTextQueue = {
   push: (chunk: string) => void
   pushBreak: () => void
+  flush: () => void
   end: () => void
   fail: () => void
   reset: () => void
@@ -26,6 +27,7 @@ const CHARS_PER_SEC = 150
 const CATCHUP_CHARS_PER_SEC = 220
 const CATCHUP_AFTER = 1200
 const MAX_FRAME_MS = 48
+const MIN_RENDER_INTERVAL_MS = 32
 
 export function createStreamTextQueue(handlers: Handlers): StreamTextQueue {
   let received = ''
@@ -34,6 +36,7 @@ export function createStreamTextQueue(handlers: Handlers): StreamTextQueue {
   let frame: number | null = null
   let carry = 0
   let lastTick = 0
+  let lastReveal = 0
   let waiters: Array<() => void> = []
 
   function flushWaiters() {
@@ -90,6 +93,10 @@ export function createStreamTextQueue(handlers: Handlers): StreamTextQueue {
     const dt = lastTick ? Math.min(now - lastTick, MAX_FRAME_MS) : 16
     lastTick = now
     carry += (dt / 1000) * revealRate()
+    if (lastReveal && now - lastReveal < MIN_RENDER_INTERVAL_MS) {
+      frame = requestAnimationFrame(tick)
+      return
+    }
     if (carry < 1) {
       frame = requestAnimationFrame(tick)
       return
@@ -98,6 +105,7 @@ export function createStreamTextQueue(handlers: Handlers): StreamTextQueue {
     const count = Math.min(waiting, Math.floor(carry))
     carry -= count
     reveal(count)
+    lastReveal = now
 
     if (pendingChars() > 0) {
       frame = requestAnimationFrame(tick)
@@ -125,6 +133,15 @@ export function createStreamTextQueue(handlers: Handlers): StreamTextQueue {
       received = `${head}${tail}\n\n`
       kick()
     },
+    flush() {
+      if (ended) return
+      stop()
+      carry = 0
+      lastReveal = 0
+      const rest = received.slice(revealed.length)
+      if (rest) reveal(rest.length)
+      notifyIdle()
+    },
     end() {
       ended = true
       if (pendingChars() <= 0) {
@@ -137,6 +154,7 @@ export function createStreamTextQueue(handlers: Handlers): StreamTextQueue {
       stop()
       ended = true
       carry = 0
+      lastReveal = 0
       const rest = received.slice(revealed.length)
       if (rest) reveal(rest.length)
       notifyIdle()
@@ -148,6 +166,7 @@ export function createStreamTextQueue(handlers: Handlers): StreamTextQueue {
       ended = false
       carry = 0
       lastTick = 0
+      lastReveal = 0
       flushWaiters()
     },
     idle() {

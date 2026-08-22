@@ -1,14 +1,14 @@
 import DOMPurify from 'dompurify'
 import { marked, Renderer } from 'marked'
-import mermaid from 'mermaid'
-import { useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 
 let mermaidSequence = 0
 let mermaidReady = false
 let mermaidRenderTail: Promise<unknown> = Promise.resolve()
 const mermaidCache = new Map<string, Promise<string>>()
+let mermaidModule: Promise<typeof import('mermaid').default> | null = null
 
-export function MarkdownText({ children, fadeTail = 0 }: { children: string; fadeTail?: number }) {
+export const MarkdownText = memo(function MarkdownText({ children, fadeTail = 0 }: { children: string; fadeTail?: number }) {
   const host = useRef<HTMLDivElement>(null)
   const html = useMemo(() => renderMarkdown(children), [children])
 
@@ -50,7 +50,7 @@ export function MarkdownText({ children, fadeTail = 0 }: { children: string; fad
       })
     }
 
-  })
+  }, [html])
 
   return (
     <div
@@ -59,7 +59,7 @@ export function MarkdownText({ children, fadeTail = 0 }: { children: string; fad
       dangerouslySetInnerHTML={{ __html: html }}
     />
   )
-}
+})
 
 function renderMarkdown(source: string) {
   const renderer = new Renderer()
@@ -126,6 +126,10 @@ async function renderMermaidCached(source: string) {
 }
 
 async function renderMermaid(source: string) {
+  if (!mermaidModule) {
+    mermaidModule = import('mermaid').then(({ default: value }) => value)
+  }
+  const mermaid = await mermaidModule
   if (!mermaidReady) {
     mermaid.initialize({
       startOnLoad: false,
