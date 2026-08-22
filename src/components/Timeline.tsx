@@ -2,6 +2,7 @@ import { useRef, useState, type DragEvent, type PointerEvent } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Captions, Eye, Link2, Magnet, Scissors, Type, Unlink, Volume2, X } from 'lucide-react'
 import type { Clip, MediaAsset, Track } from '../types'
+import type { VisualReviewFinding } from '../lib/api'
 import { PROJECT_FPS, markers, tracks } from '../data/project'
 import { formatClock } from '../lib/time'
 import { waveform } from '../lib/wave'
@@ -57,6 +58,8 @@ type Props = {
   onEditMode: (mode: EditMode) => void
   onUnlink?: () => void
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error'
+  reviewFindings?: VisualReviewFinding[]
+  onReviewFinding?: (finding: VisualReviewFinding) => void
 }
 
 export function Timeline({
@@ -82,6 +85,8 @@ export function Timeline({
   onEditMode,
   onUnlink,
   saveStatus = 'idle',
+  reviewFindings = [],
+  onReviewFinding,
 }: Props) {
   const reduce = useReducedMotion()
   const scroller = useRef<HTMLDivElement>(null)
@@ -333,6 +338,22 @@ export function Timeline({
                 </div>
               ))}
           </div>
+
+          {reviewFindings.map((finding) => (
+            <button
+              key={finding.id}
+              type="button"
+              data-review-marker
+              title={`${finding.title} · ${formatClock(finding.time)}`}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => onReviewFinding?.(finding)}
+              className={cn(
+                'absolute top-7 bottom-0 z-15 w-1 -translate-x-1/2 rounded-full opacity-80 transition-opacity hover:opacity-100',
+                finding.severity === 'error' ? 'bg-mark' : 'bg-live',
+              )}
+              style={{ left: HEADER + finding.time * pxPerSecond }}
+            />
+          ))}
 
           {tracks.map((track) => (
             <TrackLane

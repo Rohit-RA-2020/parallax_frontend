@@ -3,6 +3,7 @@ import {
   Pause,
   Play,
   Scan,
+  ScanSearch,
   SkipBack,
   SkipForward,
   Volume2,
@@ -11,6 +12,7 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import type { Clip, Grade } from '../types'
+import type { VisualReview, VisualReviewFinding } from '../lib/api'
 import { PROJECT_FPS, clipsAtTime } from '../data/project'
 import { captionFontPx, cueAt, DEFAULT_CAPTION_FONT, useCaptionCues } from '../lib/captions'
 import { DEFAULT_FRAME, fitContain, resolutionLabel } from '../lib/frame'
@@ -37,6 +39,12 @@ type Props = {
   onSeek: (time: number) => void
   onToggleMute: () => void
   onToggleSafe: () => void
+  visualReview?: VisualReview | null
+  visualReviewLoading?: boolean
+  visualReviewError?: string
+  selectedFindingId?: string | null
+  onReviewFull?: () => void
+  onSelectFinding?: (finding: VisualReviewFinding) => void
 }
 
 export function PreviewStage({
@@ -54,6 +62,12 @@ export function PreviewStage({
   onSeek,
   onToggleMute,
   onToggleSafe,
+  visualReview = null,
+  visualReviewLoading = false,
+  visualReviewError = '',
+  selectedFindingId = null,
+  onReviewFull,
+  onSelectFinding,
 }: Props) {
   const reduce = useReducedMotion()
   const filter = [
@@ -154,6 +168,9 @@ export function PreviewStage({
           <IconButton label="Safe area" active={safeArea} onClick={onToggleSafe}>
             <Scan size={14} />
           </IconButton>
+          <IconButton label={visualReviewLoading ? 'Reviewing timeline' : 'Review timeline'} onClick={onReviewFull} disabled={!onReviewFull || visualReviewLoading} active={Boolean(visualReview?.findings.length)}>
+            <ScanSearch size={14} />
+          </IconButton>
           <IconButton label="Expand preview">
             <Maximize2 size={14} />
           </IconButton>
@@ -227,7 +244,7 @@ export function PreviewStage({
                 fallbackReason={program.video.clip.previewReason || program.video.clip.previewError}
                 onFrame={(width, height) => setDecoded({ width, height })}
               />
-            ) : program.video && (program.video.clip.previewState === 'queued' || program.video.clip.previewState === 'building' || program.video.clip.previewState === 'failed' || program.video.clip.previewPoster || program.video.clip.thumb) ? (
+            ) : program.video?.clip.mediaType === 'video' && (program.video.clip.previewState === 'queued' || program.video.clip.previewState === 'building' || program.video.clip.previewState === 'failed' || program.video.clip.previewPoster || program.video.clip.thumb) ? (
               <PreviewPending
                 key={program.video.clip.id + '-pending'}
                 name={program.video.clip.name}
@@ -324,6 +341,16 @@ export function PreviewStage({
         </motion.div>
       </div>
 
+      {(visualReviewLoading || visualReview || visualReviewError) && (
+        <VisualReviewDrawer
+          review={visualReview}
+          loading={visualReviewLoading}
+          error={visualReviewError}
+          selectedFindingId={selectedFindingId}
+          onSelectFinding={onSelectFinding}
+        />
+      )}
+
       <div className="flex h-14 shrink-0 items-center gap-3 px-4">
         <div className="flex items-center gap-0.5">
           <IconButton label="Back 2s" onClick={() => onSeek(currentTime - 2)}>
@@ -389,6 +416,76 @@ export function PreviewStage({
 
       <ClipInspector program={program} frameLabel={frameLabel} />
     </section>
+  )
+}
+
+function VisualReviewDrawer({
+  review,
+  loading,
+  error,
+  selectedFindingId,
+  onSelectFinding,
+}: {
+  review: VisualReview | null
+  loading: boolean
+  error: string
+  selectedFindingId: string | null
+  onSelectFinding?: (finding: VisualReviewFinding) => void
+}) {
+  const selected = review?.findings.find((finding) => finding.id === selectedFindingId) ?? review?.findings[0]
+  const frames = new Map((review?.frames ?? []).map((frame) => [frame.id, frame]))
+  return (
+    <div className="chrome max-h-52 shrink-0 overflow-y-auto border-y border-line bg-panel/95 px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-[10px] font-medium tracking-[0.14em] text-mute uppercase">
+          <ScanSearch size={11} />
+          Visual review
+          {review && <span className="font-mono tracking-normal text-dim">r{review.revision}</span>}
+        </div>
+        <span className={cn(
+          'text-[10px]',
+          loading ? 'text-live' : review?.findings.length ? 'text-mark' : 'text-dim',
+        )}>
+          {loading ? 'Rendering evidence…' : review?.findings.length ? `${review.findings.length} finding${review.findings.length === 1 ? '' : 's'}` : 'No visible issues'}
+        </span>
+      </div>
+      {error && <div className="mt-1 text-[10px] text-dim">{error}</div>}
+      {review?.findings.length ? (
+        <div className="mt-2 grid min-w-0 gap-2 lg:grid-cols-[minmax(150px,0.7fr)_minmax(260px,1.3fr)]">
+          <div className="flex min-w-0 gap-1 overflow-x-auto">
+            {review.findings.map((finding) => (
+              <button
+                key={finding.id}
+                type="button"
+                onClick={() => onSelectFinding?.(finding)}
+                className={cn(
+                  'min-w-[140px] rounded-md border px-2 py-1.5 text-left transition-colors',
+                  finding.id === selected?.id ? 'border-mark/60 bg-mark/10' : 'border-line bg-well hover:border-line-strong',
+                )}
+              >
+                <div className="flex items-center justify-between gap-2 text-[9px] font-mono text-dim">
+                  <span>{formatTimecode(finding.time, PROJECT_FPS)}</span>
+                  <span className={finding.severity === 'error' ? 'text-mark' : 'text-live'}>{finding.severity}</span>
+                </div>
+                <div className="mt-1 truncate text-[10px] text-cream">{finding.title}</div>
+              </button>
+            ))}
+          </div>
+          {selected && (
+            <div className="min-w-0">
+              <div className="grid grid-cols-3 gap-1">
+                {(selected.frame_ids ?? []).map((id) => {
+                  const frame = frames.get(id)
+                  return frame?.path ? <img key={id} src={frame.path} alt={`${frame.role ?? 'evidence'} frame`} className="aspect-video w-full rounded object-cover" /> : null
+                })}
+              </div>
+              <div className="mt-1 text-[11px] font-medium text-cream">{selected.title}</div>
+              <div className="mt-0.5 text-[10px] leading-snug text-mute">{selected.detail}</div>
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
   )
 }
 

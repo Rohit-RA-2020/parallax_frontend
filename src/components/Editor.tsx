@@ -41,6 +41,7 @@ import {
   exportProjectMedia,
   getProjectChat,
   getProjectTimeline,
+	getVisualReview,
   getProjectHistory,
   undoProject,
   redoProject,
@@ -54,6 +55,7 @@ import {
   normalizeSettings,
   normalizeThinkingEffort,
   putProjectTimeline,
+	requestVisualReview,
   putSettings,
   streamAgent,
   uploadProjectMedia,
@@ -70,6 +72,7 @@ import {
   type SavedChatMessage,
   type HistoryMessage,
   type TimelineTransition,
+  type VisualReview,
 } from '../lib/api'
 import { TopBar } from './TopBar'
 import { UploadProgressBar, type UploadStatus } from './UploadProgressBar'
@@ -84,6 +87,14 @@ import { fade, panelTransition } from '../lib/motion'
 import { cn } from '../lib/cn'
 import { createStreamTextQueue, type StreamTextQueue } from '../lib/streamText'
 import { stripThoughtMarkup } from '../lib/thought'
+
+const MEDIA_GENERATION_TOOLS = new Set([
+  'generate_image',
+  'generate_video',
+  'generate_voiceover',
+  'generate_music',
+  'generate_sound_effect',
+])
 
 export function Editor() {
   const reduce = useReducedMotion()
@@ -115,6 +126,11 @@ export function Editor() {
   const messagesRef = useRef<ChatMessage[]>([])
   messagesRef.current = messages
   const [grade] = useState<Grade>({ warmth: 0, contrast: 0, saturation: 0 })
+  const [visualReview, setVisualReview] = useState<VisualReview | null>(null)
+  const [visualReviewLoading, setVisualReviewLoading] = useState(false)
+  const [visualReviewError, setVisualReviewError] = useState('')
+  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null)
+  const reviewGenRef = useRef(0)
   const [toast, setToast] = useState<string | null>(null)
   const [projects, setProjects] = useState<ProjectRecord[]>([])
   const [projectId, setProjectId] = useState('')
@@ -304,6 +320,26 @@ export function Editor() {
     setMessages(toUiMessages(detail.messages))
   }, [])
 
+  const runVisualReview = useCallback(async (mode: 'changed' | 'full', targetRevision = revisionRef.current) => {
+    const id = projectIdRef.current
+    if (!id || targetRevision < 0) return
+    const gen = ++reviewGenRef.current
+    setVisualReviewLoading(true)
+    setVisualReviewError('')
+    try {
+      const result = await requestVisualReview(id, { revision: targetRevision, mode })
+      if (gen !== reviewGenRef.current || projectIdRef.current !== id) return
+      setVisualReview(result)
+      setSelectedFindingId(result.findings[0]?.id ?? null)
+      if (result.error) setVisualReviewError(result.error)
+    } catch (error) {
+      if (gen !== reviewGenRef.current || projectIdRef.current !== id) return
+      setVisualReviewError(errorMessage(error))
+    } finally {
+      if (gen === reviewGenRef.current) setVisualReviewLoading(false)
+    }
+  }, [])
+
   const flushTimeline = useCallback(async (opts?: { keepalive?: boolean }) => {
     if (!timelineReadyRef.current) return
     const id = projectIdRef.current
@@ -335,6 +371,7 @@ export function Editor() {
       lastSavedRef.current = fingerprint
       setSaveStatus('saved')
       void refreshHistory(id)
+      if (!opts?.keepalive) void runVisualReview('changed', saved.revision)
     } catch (error) {
       if (gen !== saveGenRef.current || projectIdRef.current !== id) return
       dirtyRef.current = true
@@ -343,7 +380,12 @@ export function Editor() {
     } finally {
       if (gen === saveGenRef.current) savingRef.current = false
     }
-  }, [refreshHistory])
+  }, [refreshHistory, runVisualReview])
+
+  const reviewFull = useCallback(async () => {
+    await flushTimeline()
+    await runVisualReview('full', revisionRef.current)
+  }, [flushTimeline, runVisualReview])
 
   const scheduleSave = useCallback(() => {
     if (!timelineReadyRef.current || !projectIdRef.current) return
@@ -377,6 +419,9 @@ export function Editor() {
     setPxPerSecond(zoom)
     timelineMetaRef.current = { canvas: timeline.canvas ?? { width: 1920, height: 1080 }, transitions: timeline.transitions ?? [] }
     setRevision(timeline.revision ?? 0)
+    setVisualReview(null)
+    setSelectedFindingId(null)
+    setVisualReviewError('')
     lastSavedRef.current = timelineFingerprint(buildTimelineDocument({
       clips: nextClips,
       fps: PROJECT_FPS,
@@ -389,6 +434,14 @@ export function Editor() {
     }))
     timelineReadyRef.current = true
     setSaveStatus(nextClips.length ? 'saved' : 'idle')
+    if (timeline.revision > 0) {
+      void getVisualReview(id, timeline.revision).then((result) => {
+        if (projectIdRef.current === id) {
+          setVisualReview(result)
+          setSelectedFindingId(result.findings[0]?.id ?? null)
+        }
+      }).catch(() => undefined)
+    }
   }, [])
 
   const bootProject = useCallback(async (id: string) => {
@@ -1247,7 +1300,7 @@ export function Editor() {
           const ok = event.data.ok === true
           const elapsedMs = numberValue(event.data.elapsed_ms) ?? undefined
           const error = typeof event.data.error === 'string' ? event.data.error : ''
-          if (ok && event.data.name === 'generate_image') {
+          if (ok && typeof event.data.name === 'string' && MEDIA_GENERATION_TOOLS.has(event.data.name)) {
             void refreshMedia(projectId, { silent: true })
           }
           setActivity((current) => {
@@ -1438,6 +1491,15 @@ export function Editor() {
             onSeek={seek}
             onToggleMute={() => setMuted((m) => !m)}
             onToggleSafe={() => setSafeArea((s) => !s)}
+            visualReview={visualReview}
+            visualReviewLoading={visualReviewLoading}
+            visualReviewError={visualReviewError}
+            selectedFindingId={selectedFindingId}
+            onReviewFull={() => void reviewFull()}
+            onSelectFinding={(finding) => {
+              setSelectedFindingId(finding.id)
+              seek(finding.time)
+            }}
           />
           <Timeline
             clips={clips}
@@ -1471,6 +1533,11 @@ export function Editor() {
             }}
             onUnlink={unlinkSelected}
             saveStatus={saveStatus}
+            reviewFindings={visualReview?.revision === revision ? visualReview.findings : []}
+            onReviewFinding={(finding) => {
+              setSelectedFindingId(finding.id)
+              seek(finding.time)
+            }}
           />
         </div>
 

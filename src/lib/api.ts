@@ -410,6 +410,54 @@ export function putProjectTimeline(
   })
 }
 
+export type VisualReviewMode = 'changed' | 'full'
+export type VisualReviewStatus = 'ready' | 'degraded'
+export type VisualReviewFrame = {
+  id: string
+  path: string
+  url?: string
+  time: number
+  role?: string
+  width?: number
+  height?: number
+  avg_luma?: number
+}
+export type VisualReviewFinding = {
+  id: string
+  time: number
+  type: string
+  severity: 'info' | 'warning' | 'error' | string
+  confidence: number
+  title: string
+  detail: string
+  frame_ids?: string[]
+  suggested_operation?: Record<string, unknown>
+  source?: string
+}
+export type VisualReview = {
+  id: string
+  project_id: string
+  revision: number
+  mode: VisualReviewMode
+  status: VisualReviewStatus | string
+  error?: string
+  created_at: string
+  frames: VisualReviewFrame[]
+  findings: VisualReviewFinding[]
+}
+
+export function requestVisualReview(projectID: string, body: { revision: number; mode: VisualReviewMode; focus_times?: number[] }) {
+  return request<VisualReview>(`/v1/projects/${projectID}/visual-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function getVisualReview(projectID: string, revision: number) {
+  return request<VisualReview>(`/v1/projects/${projectID}/visual-reviews/${revision}`)
+}
+
 export type ProjectRevision = { id:number; parent_id?:number; actor:'human'|'agent'|'system'; summary:string; chat_id?:string; created_at:string; children?:number[]; checkpoints?:string[] }
 export type ProjectHistory = { head:number; can_undo:boolean; redo_candidates:number[]; revisions:ProjectRevision[] }
 

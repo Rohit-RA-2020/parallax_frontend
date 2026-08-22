@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, ImagePlus, LoaderCircle, Pencil, Plus, PanelRightClose, RotateCcw, Trash2, Wrench, X } from 'lucide-react'
+import { ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download, ImagePlus, LoaderCircle, Pencil, Plus, PanelRightClose, RotateCcw, Trash2, Wrench, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ChatMessage, Clip, DirectorActivity } from '../types'
 import type { ChatRecord, LLMProfile, ThinkingEffort } from '../lib/api'
@@ -71,10 +71,12 @@ export function ChatPanel({
   const fileInput = useRef<HTMLInputElement>(null)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [attachments, setAttachments] = useState<ChatImagePayload[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const menu = useRef<HTMLDivElement>(null)
+  const exportMenu = useRef<HTMLDivElement>(null)
   const active = chats.find((chat) => chat.id === chatId)
   const activeModel = models.find((model) => model.id === modelId) ?? models[0]
   const canSend = Boolean(draft.trim() || attachments.length) && !pending
@@ -119,6 +121,15 @@ export function ChatPanel({
     return () => window.removeEventListener('mousedown', onPointer)
   }, [menuOpen])
 
+  useEffect(() => {
+    if (!exportMenuOpen) return
+    const onPointer = (event: MouseEvent) => {
+      if (!exportMenu.current?.contains(event.target as Node)) setExportMenuOpen(false)
+    }
+    window.addEventListener('mousedown', onPointer)
+    return () => window.removeEventListener('mousedown', onPointer)
+  }, [exportMenuOpen])
+
   function submit(e: FormEvent) {
     e.preventDefault()
     send()
@@ -142,6 +153,60 @@ export function ChatPanel({
     const next = await filesToChatImages(files)
     if (!next.length) return
     setAttachments((current) => [...current, ...next].slice(0, 6))
+  }
+
+  function exportChat(format: 'markdown' | 'json') {
+    const title = active?.title?.trim() || 'Director chat'
+    const safeTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'director-chat'
+    const exportedAt = new Date().toISOString()
+    const record = {
+      chat_id: chatId,
+      title,
+      exported_at: exportedAt,
+      messages: messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        text: message.text,
+        time: message.time,
+        images: message.images?.map((image) => ({ name: image.name, mime: image.mime, path: image.path, url: image.url })),
+        worked_ms: message.workedMs,
+        trace: message.trace,
+      })),
+    }
+    const body = format === 'json'
+      ? JSON.stringify(record, null, 2)
+      : [
+          `# ${title}`,
+          '',
+          `Chat ID: ${chatId}`,
+          `Exported: ${exportedAt}`,
+          '',
+          ...messages.flatMap((message) => {
+            const heading = message.role === 'user' ? '## User' : '## Director'
+            const attachmentLines = message.images?.length
+              ? ['', '**Attachments:**', ...message.images.map((image) => `- ${image.name || 'image'}${image.path ? ` — ${image.path}` : ''}`)]
+              : []
+            const traceLines = message.trace?.length
+              ? ['', '**Activity:**', ...message.trace.map((item) => {
+                  const label = item.name ? `${item.name}: ` : ''
+                  const detail = item.detail || item.status
+                  return `- ${item.status} — ${label}${detail}`
+                })]
+              : []
+            return [heading, '', message.text || '_No text_', ...attachmentLines, ...traceLines, '']
+          }),
+        ].join('\n')
+    const blob = new Blob([body], { type: format === 'json' ? 'application/json' : 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${safeTitle}.${format === 'json' ? 'json' : 'md'}`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+    setExportMenuOpen(false)
+    setAnnouncement(`Exported ${title} as ${format === 'json' ? 'JSON' : 'Markdown'}`)
   }
 
   return (
@@ -220,6 +285,49 @@ export function ChatPanel({
           </div>
         </div>
         <div className="flex items-center">
+          <div className="relative" ref={exportMenu}>
+            <motion.button
+              type="button"
+              onClick={() => setExportMenuOpen((open) => !open)}
+              aria-label="Export chat"
+              aria-expanded={exportMenuOpen}
+              title="Export chat"
+              whileHover={reduce ? undefined : { scale: 1.06 }}
+              whileTap={reduce ? undefined : { scale: 0.92 }}
+              transition={softSpring}
+              className="grid size-8 place-items-center rounded-md text-mute hover:bg-wash hover:text-cream"
+            >
+              <Download size={14} />
+            </motion.button>
+            <AnimatePresence>
+              {exportMenuOpen && (
+                <motion.div
+                  initial={reduce ? false : { opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={reduce ? undefined : { opacity: 0, y: -4 }}
+                  transition={fade}
+                  className="absolute top-full right-0 z-30 mt-2 w-44 overflow-hidden rounded-lg border border-line bg-panel p-1 shadow-[var(--toast-shadow)]"
+                >
+                  <button
+                    type="button"
+                    onClick={() => exportChat('markdown')}
+                    className="block w-full rounded-md px-2.5 py-2 text-left text-[12px] text-cream hover:bg-wash"
+                  >
+                    Export Markdown
+                    <span className="mt-0.5 block text-[10px] text-dim">Easy to share</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => exportChat('json')}
+                    className="block w-full rounded-md px-2.5 py-2 text-left text-[12px] text-cream hover:bg-wash"
+                  >
+                    Export JSON
+                    <span className="mt-0.5 block text-[10px] text-dim">Full activity detail</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
           <motion.button
             type="button"
             onClick={() => {
