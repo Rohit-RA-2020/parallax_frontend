@@ -86,7 +86,7 @@ import { HistoryPanel } from './HistoryPanel'
 import { fade, panelTransition } from '../lib/motion'
 import { cn } from '../lib/cn'
 import { createStreamTextQueue, type StreamTextQueue } from '../lib/streamText'
-import { stripThoughtMarkup } from '../lib/thought'
+import { stripThoughtMarkup, stripThoughtTags } from '../lib/thought'
 
 const MEDIA_GENERATION_TOOLS = new Set([
   'generate_image',
@@ -1243,11 +1243,10 @@ export function Editor() {
           writeActiveChat(projectId, event.data.session_id)
         }
         if (event.type === 'text' && typeof event.data.delta === 'string') {
-          const visible = stripThoughtMarkup(event.data.delta)
-          if (visible) {
-            queue.push(visible)
-            setActivity((current) => appendLiveTextActivity(current, visible))
-          }
+          // Preserve leading spaces between streamed tokens; whole-message
+          // cleanup may trim once, but trimming every delta joins words.
+          const visible = stripThoughtTags(event.data.delta)
+          if (visible) queue.push(visible)
         }
         if (event.type === 'step' && event.data.phase === 'think') {
           const iteration = numberValue(event.data.iteration)
@@ -2001,23 +2000,6 @@ function applyThinkingActivity(items: DirectorActivity[], data: Record<string, u
   const copy = [...items]
   copy[index] = { ...items[index], ...next }
   return copy
-}
-
-function appendLiveTextActivity(items: DirectorActivity[], delta: string): DirectorActivity[] {
-  if (!delta) return items
-  const last = items[items.length - 1]
-  if (last?.kind === 'text' && last.status === 'active') {
-    const next = [...items]
-    next[next.length - 1] = { ...last, detail: `${last.detail ?? ''}${delta}` }
-    return next
-  }
-  return [...items, {
-    id: `text-${items.length}-${Date.now()}`,
-    kind: 'text',
-    status: 'active',
-    title: 'Director',
-    detail: delta,
-  }]
 }
 
 function placeholderThought(value: string) {

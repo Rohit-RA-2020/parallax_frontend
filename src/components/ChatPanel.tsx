@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
-import { ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download, ImagePlus, LoaderCircle, MessageSquareText, Pencil, Plus, PanelRightClose, RotateCcw, Trash2, Wrench, X } from 'lucide-react'
+import { ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download, ImagePlus, LoaderCircle, Pencil, Plus, PanelRightClose, RotateCcw, Trash2, Wrench, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ChatMessage, Clip, DirectorActivity } from '../types'
 import type { ChatRecord, LLMProfile, ThinkingEffort } from '../lib/api'
@@ -8,7 +8,7 @@ import { filesToChatImages, type ChatImagePayload } from '../lib/chatImage'
 import { formatRange } from '../lib/time'
 import { cn } from '../lib/cn'
 import { fade, softSpring } from '../lib/motion'
-import { stripThoughtMarkup, thoughtPreview } from '../lib/thought'
+import { stripThoughtMarkup } from '../lib/thought'
 import { MarkdownText } from './MarkdownText'
 import { Select, SelectContent, SelectItem, SelectTrigger } from './Select'
 
@@ -65,6 +65,10 @@ export function ChatPanel({
 }: Props) {
   const reduce = useReducedMotion()
   const scroller = useRef<HTMLDivElement>(null)
+  const stickToBottom = useRef(true)
+  const pinnedUserId = useRef<string | undefined>(undefined)
+  const programmaticScroll = useRef(false)
+  const scrollAnimationTimer = useRef<number | null>(null)
   const lastPinnedUserId = useRef<string | undefined>(undefined)
   const lastPinnedChatId = useRef(chatId)
   const wasPending = useRef(pending)
@@ -75,6 +79,7 @@ export function ChatPanel({
   const [attachments, setAttachments] = useState<ChatImagePayload[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [announcement, setAnnouncement] = useState('')
+  const [responseAnchorId, setResponseAnchorId] = useState<string | null>(null)
   const menu = useRef<HTMLDivElement>(null)
   const exportMenu = useRef<HTMLDivElement>(null)
   const active = chats.find((chat) => chat.id === chatId)
@@ -101,8 +106,58 @@ export function ChatPanel({
     if (!chatChanged && !userChanged) return
     const el = scroller.current
     if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [chatId, messages])
+    if (chatChanged || !lastUser || !pending) {
+      pinnedUserId.current = undefined
+      stickToBottom.current = true
+      if (chatChanged) setResponseAnchorId(null)
+      el.scrollTop = el.scrollHeight
+      return
+    }
+
+    pinnedUserId.current = lastUser.id
+    setResponseAnchorId(lastUser.id)
+    stickToBottom.current = false
+    programmaticScroll.current = true
+    window.requestAnimationFrame(() => {
+      const target = Array.from(el.querySelectorAll<HTMLElement>('[data-chat-message-id]'))
+        .find((node) => node.dataset.chatMessageId === lastUser.id)
+      if (!target) return
+      const targetStyle = window.getComputedStyle(target)
+      const translateY = targetStyle.transform === 'none'
+        ? 0
+        : new DOMMatrixReadOnly(targetStyle.transform).m42
+      const inset = Number.parseFloat(window.getComputedStyle(el).paddingTop) || 0
+      const top = target.getBoundingClientRect().top - translateY - el.getBoundingClientRect().top + el.scrollTop - inset
+      el.scrollTo({ top, behavior: reduce ? 'auto' : 'smooth' })
+      if (scrollAnimationTimer.current != null) window.clearTimeout(scrollAnimationTimer.current)
+      scrollAnimationTimer.current = window.setTimeout(() => {
+        programmaticScroll.current = false
+      }, reduce ? 0 : 450)
+    })
+  }, [chatId, messages, pending, reduce])
+
+  useEffect(() => () => {
+    if (scrollAnimationTimer.current != null) window.clearTimeout(scrollAnimationTimer.current)
+  }, [])
+
+  useEffect(() => {
+    if (pinnedUserId.current) return
+    if (!stickToBottom.current) return
+    const frame = window.requestAnimationFrame(() => {
+      const el = scroller.current
+      if (el) el.scrollTop = el.scrollHeight
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activity, messages, pending])
+
+  function releasePinnedScroll() {
+    pinnedUserId.current = undefined
+    programmaticScroll.current = false
+    if (scrollAnimationTimer.current != null) {
+      window.clearTimeout(scrollAnimationTimer.current)
+      scrollAnimationTimer.current = null
+    }
+  }
 
   useEffect(() => {
     if (wasPending.current && !pending) {
@@ -381,6 +436,16 @@ export function ChatPanel({
 
       <div
         ref={scroller}
+        data-chat-scroller
+        onScroll={(event) => {
+          if (programmaticScroll.current) return
+          const el = event.currentTarget
+          pinnedUserId.current = undefined
+          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 72
+        }}
+        onWheel={releasePinnedScroll}
+        onTouchStart={releasePinnedScroll}
+        onPointerDown={releasePinnedScroll}
         className="min-h-0 flex-1 space-y-4 overflow-y-auto [overflow-anchor:none] px-4 py-4 scroll-thin"
       >
         <div className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</div>
@@ -429,7 +494,6 @@ export function ChatPanel({
               onStartEdit={() => setEditingIndex(index)}
               onCancelEdit={() => setEditingIndex(null)}
               onSubmitEdit={onEdit}
-              hideActivity={live && !pending}
             />
           )
         })}
@@ -455,6 +519,7 @@ export function ChatPanel({
             Cutting…
           </motion.div>
         )}
+        {(pending || responseAnchorId) && <div aria-hidden="true" className="pointer-events-none" style={{ height: 'calc(100% - 4rem)' }} />}
       </div>
 
       <div className="border-t border-line bg-panel p-3">
@@ -636,7 +701,6 @@ function Message({
   index,
   reduce,
   activity,
-  hideActivity = false,
   streaming = false,
   pending = false,
   editing = false,
@@ -649,7 +713,6 @@ function Message({
   index: number
   reduce: boolean
   activity?: ReactNode
-  hideActivity?: boolean
   streaming?: boolean
   pending?: boolean
   editing?: boolean
@@ -684,6 +747,7 @@ function Message({
 
   return (
     <motion.div
+      data-chat-message-id={message.id}
       initial={mine && !reduce ? { opacity: 0, y: 8 } : false}
       animate={{ opacity: 1, y: 0 }}
       transition={fade}
@@ -693,7 +757,7 @@ function Message({
         <span>{mine ? 'You' : 'Director'}</span>
         {message.time && <span className="font-mono">{message.time}</span>}
       </div>
-      {activity ?? (!hideActivity && !mine && message.workedMs != null ? (
+      {activity ?? (!mine && message.workedMs != null ? (
         message.trace?.length
           ? <ActivityPanel items={message.trace} pending={false} startedAt={null} elapsedOverride={message.workedMs} reduce={reduce} />
           : <WorkedDuration value={message.workedMs} />
@@ -761,7 +825,7 @@ function Message({
           </div>
         ) : reply ? (
           <div className={cn(!mine && !reduce && 'chat-message-enter', streaming && !reduce && 'stream-ink')}>
-            {mine ? reply : pending ? null : <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{reply}</MarkdownText>}
+            {mine ? reply : <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{reply}</MarkdownText>}
           </div>
         ) : null}
       </div>
@@ -904,15 +968,10 @@ function ActivityPanel({
 }) {
   const [expanded, setExpanded] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
-  const hasThought = items.some((item) => item.kind === 'thinking' && item.detail && !placeholderThought(item.detail))
 
   useEffect(() => {
-    if (!pending) {
-      setExpanded(false)
-      return
-    }
-    if (hasThought || items.length > 0) setExpanded(true)
-  }, [hasThought, items.length, pending])
+    setExpanded(false)
+  }, [pending, startedAt])
 
   useEffect(() => {
     if (!startedAt) return
@@ -923,10 +982,7 @@ function ActivityPanel({
     return () => window.clearInterval(timer)
   }, [pending, startedAt])
 
-  const latest = items[items.length - 1]
-  const latestThought = [...items].reverse().find((item) => item.kind === 'thinking' && item.detail && !placeholderThought(item.detail))
-  const thoughtLine = latestThought?.detail ? thoughtPreview(latestThought.detail) : ''
-  const label = thoughtLine || compactActivityLabel(latestThought ? 'Thinking' : latest?.title ?? 'Working')
+  const label = 'Working…'
 
   return (
     <motion.div
@@ -943,7 +999,7 @@ function ActivityPanel({
       >
         {pending ? (
           <>
-            <span className="size-1 shrink-0 rounded-full bg-live" />
+            <LoaderCircle size={11} className={cn('shrink-0 text-live', !reduce && 'animate-spin')} />
             <span className="min-w-0 truncate text-dim">{label}</span>
             <span className="ml-auto shrink-0 font-mono text-[7px] text-dim">{formatWorkDuration(elapsedMs)}</span>
           </>
@@ -970,7 +1026,6 @@ function ActivityPanel({
 
 function ActivityRow({ item, reduce }: { item: DirectorActivity; reduce: boolean }) {
   const tool = item.kind === 'tool'
-  const streamedText = item.kind === 'text'
   const thought = item.kind === 'thinking' && item.detail && !placeholderThought(item.detail)
   const icon = item.status === 'active'
     ? <LoaderCircle size={12} className={cn('text-live', !reduce && 'animate-spin')} />
@@ -978,8 +1033,6 @@ function ActivityRow({ item, reduce }: { item: DirectorActivity; reduce: boolean
       ? <CircleAlert size={12} className="text-mark" />
       : tool
         ? <Wrench size={11} className="text-live" />
-        : streamedText
-          ? <MessageSquareText size={11} className="text-live" />
         : thought
           ? <Brain size={11} className="text-live" />
           : <Check size={12} className="text-dim" />
@@ -1002,14 +1055,12 @@ function ActivityRow({ item, reduce }: { item: DirectorActivity; reduce: boolean
             <div
               className={cn(
                 'break-words leading-relaxed',
-                item.status === 'error' ? 'text-[9px] text-mark/80' : streamedText
-                  ? 'max-h-44 overflow-y-auto whitespace-pre-wrap text-[10px] text-cream/80 scroll-thin'
-                  : thought
-                    ? 'max-h-44 overflow-y-auto whitespace-pre-wrap text-[10px] text-dim/80 scroll-thin'
-                    : 'text-[9px] text-dim',
+                item.status === 'error' ? 'text-[9px] text-mark/80' : thought
+                  ? 'max-h-44 overflow-y-auto whitespace-pre-wrap text-[10px] text-dim/80 scroll-thin'
+                  : 'text-[9px] text-dim',
               )}
             >
-              {thought || streamedText ? stripThoughtMarkup(item.detail) : item.detail}
+              {thought ? stripThoughtMarkup(item.detail) : item.detail}
             </div>
           )}
           {item.arguments !== undefined && (
@@ -1043,18 +1094,6 @@ function formatElapsed(value: number) {
 
 function placeholderThought(value: string) {
   return !value.trim() || /^Director (is deciding|decided|is applying)/.test(value)
-}
-
-function compactActivityLabel(value: string) {
-  if (/^Planning/.test(value)) return 'Planning…'
-  if (/^Thinking/.test(value)) return 'Thinking…'
-  if (/^Searching/.test(value)) return 'Searching…'
-  if (/^Executing/.test(value)) return 'Working…'
-  if (/^Inspecting/.test(value)) return 'Inspecting…'
-  if (/^Reading/.test(value)) return 'Reading…'
-  if (/^Editing/.test(value)) return 'Editing…'
-  if (/^Placing/.test(value)) return 'Placing…'
-  return value
 }
 
 function formatWorkDuration(value: number) {
