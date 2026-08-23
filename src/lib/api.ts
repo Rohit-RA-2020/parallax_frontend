@@ -1,4 +1,5 @@
 import type { TimelineDocument } from './timeline'
+import { Upload } from 'tus-js-client'
 
 export const API_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8080').replace(/\/$/, '')
 
@@ -201,7 +202,7 @@ export async function listProjectMedia(projectID: string) {
   return result.media ?? []
 }
 
-export const MAX_UPLOAD_BYTES = 16 * 1024 * 1024 * 1024
+export const MAX_UPLOAD_BYTES = 64 * 1024 * 1024 * 1024
 
 export type UploadProgress = {
   file: string
@@ -209,6 +210,8 @@ export type UploadProgress = {
   fileCount: number
   sent: number
   total: number
+	phase?: 'uploading' | 'finalizing' | 'paused'
+	completedFiles?: number
 }
 
 export function formatBytes(n: number): string {
@@ -232,64 +235,153 @@ export function describeProjectMedia(projectID: string, path: string) {
   })
 }
 
-export async function uploadProjectMedia(
+export type ProjectMediaUploadTask = {
+	result: Promise<ProjectMedia[]>
+	pause: () => Promise<void>
+	resume: () => void
+	cancel: () => Promise<void>
+}
+
+type UploadStatusResponse = {
+	id: string
+	state: 'receiving' | 'finalizing' | 'ready' | 'failed' | 'expired'
+	project_id: string
+	filename: string
+	offset: number
+	size: number
+	error?: string
+	media?: ProjectMedia
+}
+
+export function uploadProjectMedia(
   projectID: string,
   files: File[],
   onProgress?: (progress: UploadProgress) => void,
-) {
-  const out: ProjectMedia[] = []
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    if (file.size > MAX_UPLOAD_BYTES) {
-      throw new Error(`${file.name} is ${formatBytes(file.size)}; max is ${formatBytes(MAX_UPLOAD_BYTES)} per file`)
-    }
-    const media = await uploadProjectFile(projectID, file, (sent, total) => {
-      onProgress?.({
-        file: file.name,
-        fileIndex: i,
-        fileCount: files.length,
-        sent,
-        total: total || file.size,
-      })
-    })
-    out.push(...media)
-  }
-  return out
+) : ProjectMediaUploadTask {
+	for (const file of files) {
+		if (file.size > MAX_UPLOAD_BYTES) {
+			const result = Promise.reject<ProjectMedia[]>(new Error(`${file.name} is ${formatBytes(file.size)}; max is ${formatBytes(MAX_UPLOAD_BYTES)} per file`))
+			return { result, pause: async () => {}, resume: () => {}, cancel: async () => {} }
+		}
+	}
+	const total = files.reduce((sum, file) => sum + file.size, 0)
+	const sent = files.map(() => 0)
+	const active = new Map<number, Upload>()
+	const rejectors = new Map<number, (error: Error) => void>()
+	let next = 0
+	let completed = 0
+	let paused = false
+	let cancelled = false
+
+	const notify = (index: number, phase: UploadProgress['phase'] = paused ? 'paused' : 'uploading') => {
+		onProgress?.({
+			file: files[index]?.name ?? files[0]?.name ?? '', fileIndex: index, fileCount: files.length,
+			sent: sent.reduce((sum, value) => sum + value, 0), total, phase, completedFiles: completed,
+		})
+	}
+
+	const uploadOne = (file: File, index: number) => new Promise<ProjectMedia>((resolve, reject) => {
+		rejectors.set(index, reject)
+		const upload = new Upload(file, {
+			endpoint: `${API_BASE}/v1/uploads/`,
+			chunkSize: 32 * 1024 * 1024,
+			retryDelays: [0, 1000, 3000, 5000, 10000, 30000],
+			metadata: { project_id: projectID, filename: file.name, filetype: file.type || 'application/octet-stream' },
+			fingerprint: async () => ['parallax', projectID, file.name, file.size, file.type, file.lastModified].join('-'),
+			removeFingerprintOnSuccess: true,
+			onProgress(bytesUploaded) {
+				sent[index] = bytesUploaded
+				notify(index)
+			},
+			onError(error) {
+				active.delete(index)
+				rejectors.delete(index)
+				reject(new Error(`Upload failed for ${file.name}: ${error.message}`))
+			},
+			async onSuccess() {
+				try {
+					sent[index] = file.size
+					notify(index, 'finalizing')
+					const id = upload.url?.split('/').filter(Boolean).pop()
+					if (!id) throw new Error('server did not return an upload id')
+					const media = await waitForUpload(id, () => notify(index, 'finalizing'))
+					completed++
+					active.delete(index)
+					rejectors.delete(index)
+					notify(index, 'finalizing')
+					resolve(media)
+				} catch (error) {
+					active.delete(index)
+					rejectors.delete(index)
+					reject(error instanceof Error ? error : new Error(String(error)))
+				}
+			},
+		})
+		active.set(index, upload)
+		void upload.findPreviousUploads().then((previous) => {
+			if (previous.length > 0) upload.resumeFromPreviousUpload(previous[0])
+			if (!paused && !cancelled) upload.start()
+		}).catch(reject)
+	})
+
+	const worker = async () => {
+		const media: ProjectMedia[] = []
+		const errors: Error[] = []
+		while (!cancelled) {
+			const index = next++
+			if (index >= files.length) break
+			try { media.push(await uploadOne(files[index], index)) } catch (error) {
+				errors.push(error instanceof Error ? error : new Error(String(error)))
+			}
+		}
+		return { media, errors }
+	}
+
+	const result = Promise.all(Array.from({ length: Math.min(2, files.length) }, worker)).then((workers) => {
+		const media = workers.flatMap((worker) => worker.media)
+		const errors = workers.flatMap((worker) => worker.errors)
+		if (errors.length > 0) throw new AggregateError(errors, errors.map((error) => error.message).join('; '))
+		return media
+	})
+
+	return {
+		result,
+		async pause() {
+			paused = true
+			await Promise.all(Array.from(active.values(), (upload) => upload.abort(false)))
+			notify(0, 'paused')
+		},
+		resume() {
+			paused = false
+			for (const upload of active.values()) upload.start()
+			notify(0, 'uploading')
+		},
+		async cancel() {
+			cancelled = true
+			await Promise.all(Array.from(active.values(), (upload) => upload.abort(true)))
+			for (const reject of rejectors.values()) reject(new Error('Upload cancelled'))
+			active.clear()
+			rejectors.clear()
+		},
+	}
 }
 
-function uploadProjectFile(
-  projectID: string,
-  file: File,
-  onProgress?: (sent: number, total: number) => void,
-): Promise<ProjectMedia[]> {
-  return new Promise((resolve, reject) => {
-    const form = new FormData()
-    form.append('files', file)
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${API_BASE}/v1/projects/${projectID}/media`)
-    xhr.timeout = 0
-    onProgress?.(0, file.size)
-    xhr.upload.onprogress = (event) => {
-      onProgress?.(event.loaded, event.total || file.size)
-    }
-    xhr.onload = () => {
-      let body: { media?: ProjectMedia[]; error?: string } = {}
-      try {
-        body = JSON.parse(xhr.responseText || '{}') as { media?: ProjectMedia[]; error?: string }
-      } catch {
-        body = {}
-      }
-      if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new Error(body.error || `Upload failed (${xhr.status})`))
-        return
-      }
-      resolve(body.media ?? [])
-    }
-    xhr.onerror = () => reject(new Error(`Network error while uploading ${file.name}`))
-    xhr.ontimeout = () => reject(new Error(`Timed out while uploading ${file.name}`))
-    xhr.onabort = () => reject(new Error(`Upload of ${file.name} was cancelled`))
-    xhr.send(form)
-  })
+async function waitForUpload(id: string, onPoll: () => void): Promise<ProjectMedia> {
+	let failures = 0
+	for (;;) {
+		let status: UploadStatusResponse | null = null
+		try {
+			status = await request<UploadStatusResponse>(`/v1/upload-status/${encodeURIComponent(id)}`)
+			failures = 0
+		} catch (error) {
+			failures++
+			if (failures >= 30) throw error
+		}
+		if (status?.state === 'ready' && status.media) return status.media
+		if (status?.state === 'failed' || status?.state === 'expired') throw new Error(status.error || `Upload ${status.state}`)
+		onPoll()
+		await new Promise((resolve) => window.setTimeout(resolve, Math.min(5000, 1000 * Math.max(1, failures))))
+	}
 }
 
 export function mediaURL(item: ProjectMedia) {

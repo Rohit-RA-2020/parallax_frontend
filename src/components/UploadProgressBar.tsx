@@ -1,18 +1,18 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { Upload } from 'lucide-react'
+import { Pause, Play, Upload, X } from 'lucide-react'
 import { formatBytes, type UploadProgress } from '../lib/api'
 import { fade } from '../lib/motion'
 import { cn } from '../lib/cn'
 
 export type UploadStatus = UploadProgress & {
-  phase: 'uploading' | 'saving'
+	phase: 'uploading' | 'finalizing' | 'paused'
   startedAt: number
 }
 
-export function UploadProgressBar({ status }: { status: UploadStatus | null }) {
+export function UploadProgressBar({ status, paused, onTogglePause, onCancel }: { status: UploadStatus | null; paused?: boolean; onTogglePause?: () => void; onCancel?: () => void }) {
   const reduce = useReducedMotion()
   const pct = status ? percentOf(status) : 0
-  const saving = status?.phase === 'saving'
+	const saving = status?.phase === 'finalizing'
   const rate = status ? transferRate(status) : 0
   const remaining = status && !saving ? etaSeconds(status, rate) : null
 
@@ -23,9 +23,9 @@ export function UploadProgressBar({ status }: { status: UploadStatus | null }) {
           key={`${status.file}-${status.fileIndex}`}
           role="status"
           aria-live="polite"
-          aria-label={saving
-            ? `Saving ${status.file} on the server`
-            : `Uploading ${status.file}, ${pct} percent`}
+					aria-label={saving
+						? `Finalizing ${status.file} on the server`
+						: paused ? `Upload paused at ${pct} percent` : `Uploading ${status.file}, ${pct} percent`}
           initial={reduce ? false : { height: 0, opacity: 0 }}
           animate={{ height: 'auto', opacity: 1 }}
           exit={reduce ? undefined : { height: 0, opacity: 0 }}
@@ -37,7 +37,7 @@ export function UploadProgressBar({ status }: { status: UploadStatus | null }) {
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-3">
                 <p className="truncate text-[12px] text-cream">
-                  {saving ? 'Saving on server' : 'Uploading'}
+							{saving ? 'Finalizing on server' : paused ? 'Upload paused' : 'Uploading'}
                   <span className="text-mute"> · {status.file}</span>
                   {status.fileCount > 1 && (
                     <span className="text-dim"> · {status.fileIndex + 1} of {status.fileCount}</span>
@@ -66,9 +66,19 @@ export function UploadProgressBar({ status }: { status: UploadStatus | null }) {
                     {remaining != null && remaining > 0 ? ` · ${formatEta(remaining)} left` : ''}
                   </>
                 )}
-                {saving && ' · writing history and starting index'}
+				{saving && ' · validating, committing history, and starting index'}
               </p>
             </div>
+						<div className="flex shrink-0 items-center gap-1">
+							{!saving && onTogglePause && (
+								<button type="button" onClick={onTogglePause} className="rounded p-1 text-mute hover:bg-wash hover:text-cream" aria-label={paused ? 'Resume upload' : 'Pause upload'}>
+									{paused ? <Play size={13} /> : <Pause size={13} />}
+								</button>
+							)}
+							{!saving && onCancel && (
+								<button type="button" onClick={onCancel} className="rounded p-1 text-mute hover:bg-wash hover:text-cream" aria-label="Cancel upload"><X size={14} /></button>
+							)}
+						</div>
           </div>
         </motion.div>
       )}

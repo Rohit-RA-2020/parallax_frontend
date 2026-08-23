@@ -72,6 +72,7 @@ import {
   type SavedChatMessage,
   type HistoryMessage,
   type TimelineTransition,
+	type ProjectMediaUploadTask,
 	type VisualReview,
   normalizeVisualReview,
 } from '../lib/api'
@@ -139,6 +140,8 @@ export function Editor() {
   const [mediaLoading, setMediaLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null)
+	const uploadTaskRef = useRef<ProjectMediaUploadTask | null>(null)
+	const [uploadPaused, setUploadPaused] = useState(false)
   const [sessionId, setSessionId] = useState('')
   const [chats, setChats] = useState<ChatRecord[]>([])
   const [createOpen, setCreateOpen] = useState(false)
@@ -1099,58 +1102,55 @@ export function Editor() {
   async function upload(files: File[]) {
     if (!projectId || files.length === 0) return
     setUploading(true)
-    let uploaded = 0
+		setUploadPaused(false)
+		const startedAt = Date.now()
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i]
-        const startedAt = Date.now()
-        setUploadStatus({
-          file: file.name,
-          fileIndex: i,
-          fileCount: files.length,
-          sent: 0,
-          total: file.size,
-          phase: 'uploading',
-          startedAt,
-        })
-        await uploadProjectMedia(projectId, [file], (progress) => {
-          setUploadStatus({
-            file: file.name,
-            fileIndex: i,
-            fileCount: files.length,
-            sent: progress.sent,
-            total: progress.total || file.size,
-            phase: 'uploading',
-            startedAt,
-          })
-        })
-        setUploadStatus((current) => current ? { ...current, sent: file.size, total: file.size, phase: 'saving' } : current)
-        uploaded++
-        const nextAssets = await refreshMedia(projectId)
-        adoptTimeline(await getProjectTimeline(projectId), nextAssets)
-      }
+			const total = files.reduce((sum, file) => sum + file.size, 0)
+			setUploadStatus({ file: files[0].name, fileIndex: 0, fileCount: files.length, sent: 0, total, phase: 'uploading', startedAt })
+			const task = uploadProjectMedia(projectId, files, (progress) => {
+				setUploadStatus({
+					...progress,
+					phase: progress.phase ?? 'uploading',
+					startedAt,
+				})
+			})
+			uploadTaskRef.current = task
+			await task.result
+			const nextAssets = await refreshMedia(projectId)
+			adoptTimeline(await getProjectTimeline(projectId), nextAssets)
       await refreshHistory(projectId)
       const latest = await listProjects()
       setProjects(latest)
       const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
       setToast(`${files.length} ${files.length === 1 ? 'file' : 'files'} uploaded (${formatBytes(totalBytes)})`)
     } catch (error) {
-      if (uploaded > 0) {
-        try {
-          await refreshHistory(projectId)
-          const latest = await listProjects()
-          setProjects(latest)
-        } catch {
-          // keep the upload error as the toast
-        }
-      }
+			try {
+				const nextAssets = await refreshMedia(projectId)
+				adoptTimeline(await getProjectTimeline(projectId), nextAssets)
+				await refreshHistory(projectId)
+				setProjects(await listProjects())
+			} catch { /* keep the upload error as the toast */ }
       setToast(errorMessage(error))
     } finally {
+			uploadTaskRef.current = null
       setUploading(false)
+			setUploadPaused(false)
       setUploadStatus(null)
       if (fileInput.current) fileInput.current.value = ''
     }
   }
+
+	async function toggleUploadPause() {
+		const task = uploadTaskRef.current
+		if (!task) return
+		if (uploadPaused) task.resume()
+		else await task.pause()
+		setUploadPaused(!uploadPaused)
+	}
+
+	async function cancelUpload() {
+		await uploadTaskRef.current?.cancel()
+	}
 
   async function retryFrom(index: number) {
     const list = messagesRef.current
@@ -1508,7 +1508,7 @@ export function Editor() {
           setExportOpen(true)
         }}
       />
-      <UploadProgressBar status={uploadStatus} />
+		<UploadProgressBar status={uploadStatus} paused={uploadPaused} onTogglePause={() => void toggleUploadPause()} onCancel={() => void cancelUpload()} />
       <input
         ref={fileInput}
         type="file"
@@ -1862,11 +1862,12 @@ export function Editor() {
 
 function buttonUploadLabel(status: UploadStatus | null) {
   if (!status) return 'Uploading…'
-  if (status.phase === 'saving') {
-    return status.fileCount > 1 ? `${status.fileIndex + 1}/${status.fileCount} · Saving` : 'Saving…'
+	if (status.phase === 'finalizing') {
+		return status.fileCount > 1 ? `${status.completedFiles ?? 0}/${status.fileCount} · Finalizing` : 'Finalizing…'
   }
+	if (status.phase === 'paused') return 'Paused'
   const pct = Math.min(100, Math.round((status.sent / Math.max(status.total, 1)) * 100))
-  return status.fileCount > 1 ? `${status.fileIndex + 1}/${status.fileCount} · ${pct}%` : `${pct}%`
+	return status.fileCount > 1 ? `${status.completedFiles ?? 0}/${status.fileCount} · ${pct}%` : `${pct}%`
 }
 
 function uid() {
