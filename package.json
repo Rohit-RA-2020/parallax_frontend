@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-	"test": "vitest run",
+    "test": "vitest run",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -16,11 +16,12 @@
     "framer-motion": "^13.1.0",
     "lucide-react": "^1.31.0",
     "marked": "^18.0.10",
+    "mediabunny": "^1.55.2",
     "mermaid": "^11.17.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "three": "^0.185.1",
-	"tus-js-client": "4.3.1",
+    "tus-js-client": "4.3.1",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -30,10 +31,11 @@
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^6.0.4",
+    "@webgpu/types": "^0.1.72",
     "oxlint": "^1.75.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
-	"vite": "^8.2.0",
-	"vitest": "4.1.11"
+    "vite": "^8.2.0",
+    "vitest": "4.1.11"
   }
 }

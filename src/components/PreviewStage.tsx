@@ -22,6 +22,8 @@ import { fadeSlow, softSpring } from '../lib/motion'
 import { IconButton } from './ui'
 import { cn } from '../lib/cn'
 import { propertyAt } from '../lib/keyframes'
+import { canUseWebCodecsPreview } from '../lib/previewCapabilities'
+import { WebCodecsVideo } from './WebCodecsVideo'
 
 const Atmosphere = lazy(() => import('./Atmosphere').then(({ Atmosphere: component }) => ({ default: component })))
 
@@ -594,21 +596,14 @@ function PreviewPending({
   )
 }
 
-function PreviewVideo({
-  src,
-  poster,
-  start,
-  sourceIn,
-  currentTime,
-  isPlaying,
-  muted,
-  filter,
-  visualStyle,
-  rate,
-  reduce,
-  fallbackReason,
-  onFrame,
-}: {
+function PreviewVideo(props: PreviewVideoProps) {
+  if (canUseWebCodecsPreview()) {
+    return <WebCodecsVideo {...props} fallback={<NativePreviewVideo {...props} />} />
+  }
+  return <NativePreviewVideo {...props} />
+}
+
+export type PreviewVideoProps = {
   src: string
   poster?: string
   start: number
@@ -622,7 +617,23 @@ function PreviewVideo({
   reduce: boolean
   fallbackReason?: string
   onFrame?: (width: number, height: number) => void
-}) {
+}
+
+function NativePreviewVideo({
+  src,
+  poster,
+  start,
+  sourceIn,
+  currentTime,
+  isPlaying,
+  muted,
+  filter,
+  visualStyle,
+  rate,
+  reduce,
+  fallbackReason,
+  onFrame,
+}: PreviewVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [broken, setBroken] = useState(false)
   const startRef = useRef(start)

@@ -17,6 +17,17 @@ The frontend uses `http://localhost:8080` by default. Override it when needed:
 VITE_API_URL=http://127.0.0.1:8080 npm run dev
 ```
 
+## Accelerated preview
+
+Supported browsers decode timeline proxy frames in a dedicated WebCodecs
+worker. Frames are presented through WebGPU when an adapter is available and
+through a bitmap canvas otherwise. Initialization, codec, worker, or GPU
+failures automatically fall back to the native `<video>` preview; server-side
+FFmpeg remains the authoritative export renderer.
+
+Set `VITE_ACCELERATED_PREVIEW=0` at build time to disable the accelerated path
+for a deployment without changing the editor code.
+
 ## Connected workflow
 
 1. Create or select a project in the top bar. The trash control deletes the
