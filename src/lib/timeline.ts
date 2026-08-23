@@ -160,6 +160,7 @@ export function hydrateClip(clip: Clip, assets: MediaAsset[]): Clip {
     previewError: asset.previewError,
     previewReason: asset.previewReason,
     previewPoster: asset.previewPoster,
+    timelineFrames: asset.timelineFrames,
   }
   if (asset.duration > 0) {
     next = applySourceDuration(next, asset.duration)

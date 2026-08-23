@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent, type PointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Captions, Eye, Link2, Magnet, Scissors, Type, Unlink, Volume2, X } from 'lucide-react'
 import type { Clip, MediaAsset, Track } from '../types'
@@ -19,6 +19,8 @@ import {
   type EditMode,
 } from '../lib/edit'
 import { snapTime } from '../lib/timeline'
+import { timelineFilmstripFrames } from '../lib/filmstrip'
+import { TimelineVideoFilmstrip } from './TimelineVideoFilmstrip'
 
 const LANE: Record<Track['kind'], number> = {
   video: 56,
@@ -95,11 +97,33 @@ export function Timeline({
   const dragging = useRef(false)
   const [ghost, setGhost] = useState<DropGhost | null>(null)
   const [snapGuide, setSnapGuide] = useState<number | null>(null)
+  const [viewport, setViewport] = useState({ start: 0, end: 30 })
 
   const contentW = Math.max(duration * pxPerSecond + 80, 640)
   const playX = HEADER + currentTime * pxPerSecond
   const ticks = useMemo(() => buildTicks(duration, pxPerSecond), [duration, pxPerSecond])
   const threshold = snapEnabled ? snapThresholdSeconds(pxPerSecond) : 0
+
+  const measureViewport = useCallback(() => {
+    const el = scroller.current
+    if (!el) return
+    const start = Math.max(0, (el.scrollLeft - HEADER) / pxPerSecond)
+    const end = Math.max(start, (el.scrollLeft + el.clientWidth - HEADER) / pxPerSecond)
+    setViewport((current) => (
+      Math.abs(current.start - start) < 0.01 && Math.abs(current.end - end) < 0.01
+        ? current
+        : { start, end }
+    ))
+  }, [pxPerSecond])
+
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    measureViewport()
+    const observer = new ResizeObserver(measureViewport)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [measureViewport])
 
   function timeFromClientX(clientX: number) {
     const el = scroller.current
@@ -297,6 +321,7 @@ export function Timeline({
         onPointerMove={moveScrub}
         onPointerUp={endScrub}
         onPointerCancel={endScrub}
+        onScroll={measureViewport}
         onDragLeave={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) {
             setGhost(null)
@@ -366,6 +391,9 @@ export function Timeline({
               selectedId={selectedId}
               linkedIds={linkedIds}
               currentTime={currentTime}
+              isPlaying={isPlaying}
+              visibleStart={viewport.start}
+              visibleEnd={viewport.end}
               pxPerSecond={pxPerSecond}
               snapEnabled={snapEnabled}
               ghost={ghost?.tracks.includes(track.id) ? ghost : null}
@@ -414,6 +442,9 @@ function TrackLane({
   selectedId,
   linkedIds,
   currentTime,
+  isPlaying,
+  visibleStart,
+  visibleEnd,
   pxPerSecond,
   snapEnabled,
   ghost,
@@ -432,6 +463,9 @@ function TrackLane({
   selectedId: string | null
   linkedIds: Set<string>
   currentTime: number
+  isPlaying: boolean
+  visibleStart: number
+  visibleEnd: number
   pxPerSecond: number
   snapEnabled: boolean
   ghost: DropGhost | null
@@ -485,6 +519,9 @@ function TrackLane({
           linked={selectedId !== clip.id && linkedIds.has(clip.id)}
           allClips={allClips}
           currentTime={currentTime}
+          isPlaying={isPlaying}
+          visibleStart={visibleStart}
+          visibleEnd={visibleEnd}
           pxPerSecond={pxPerSecond}
           snapEnabled={snapEnabled}
           onSelect={onSelect}
@@ -505,6 +542,9 @@ function ClipBlock({
   linked,
   allClips,
   currentTime,
+  isPlaying,
+  visibleStart,
+  visibleEnd,
   pxPerSecond,
   snapEnabled,
   onSelect,
@@ -519,6 +559,9 @@ function ClipBlock({
   linked: boolean
   allClips: Clip[]
   currentTime: number
+  isPlaying: boolean
+  visibleStart: number
+  visibleEnd: number
   pxPerSecond: number
   snapEnabled: boolean
   onSelect: (id: string) => void
@@ -529,6 +572,13 @@ function ClipBlock({
   onSnapGuide: (time: number | null) => void
 }) {
   const bars = waveform(clip.waveSeed ?? 1, Math.max(12, Math.floor(clip.duration * 6)))
+  const timelineFrames = timelineFilmstripFrames(
+    clip.timelineFrames,
+    clip.sourceDuration,
+    clip.sourceIn,
+    clip.duration,
+    clip.playback?.rate ?? 1,
+  )
   const session = useRef<{
     kind: 'move' | 'in' | 'out'
     pointerId: number
@@ -688,7 +738,32 @@ function ClipBlock({
               : 'linear-gradient(180deg, #2a2418, #1b1710)',
       }}
     >
-      {clip.mediaType === 'video' && clip.kind !== 'audio' && (clip.previewState === 'queued' || clip.previewState === 'building') && (
+      {clip.mediaType === 'video' && clip.kind !== 'audio' && timelineFrames.length > 0 && (
+        <div className="pointer-events-none absolute inset-0 flex" aria-hidden>
+          {timelineFrames.map((frame, index) => (
+            <span
+              key={`${frame}:${index}`}
+              className="min-w-0 flex-1 bg-cover bg-repeat-x"
+              style={{
+                backgroundImage: `url(${frame})`,
+                backgroundPosition: 'center',
+                backgroundSize: '96px 100%',
+              }}
+            />
+          ))}
+          <span className="absolute inset-0 bg-linear-to-t from-black/55 to-black/10" />
+        </div>
+      )}
+      {clip.mediaType === 'video' && clip.kind !== 'audio' && clip.src && (
+        <TimelineVideoFilmstrip
+          clip={clip}
+          pxPerSecond={pxPerSecond}
+          visibleStart={visibleStart}
+          visibleEnd={visibleEnd}
+          isPlaying={isPlaying}
+        />
+      )}
+      {clip.mediaType === 'video' && clip.kind !== 'audio' && timelineFrames.length === 0 && (clip.previewState === 'queued' || clip.previewState === 'building') && (
         <>
           {clip.previewPoster || clip.thumb ? (
             <img src={clip.previewPoster || clip.thumb} alt="" className="pointer-events-none absolute inset-0 size-full object-cover" />
@@ -696,7 +771,7 @@ function ClipBlock({
           <span className="pointer-events-none absolute inset-0 bg-linear-to-t from-black/55 to-black/10" />
         </>
       )}
-      {clip.mediaType === 'video' && clip.src && clip.kind !== 'audio' && clip.previewState !== 'queued' && clip.previewState !== 'building' && (
+      {clip.mediaType === 'video' && clip.src && clip.kind !== 'audio' && timelineFrames.length === 0 && clip.previewState !== 'queued' && clip.previewState !== 'building' && (
         <>
           <video
             key={`${clip.src}:${clip.sourceIn ?? 0}`}

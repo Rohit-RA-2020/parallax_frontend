@@ -25,6 +25,7 @@ export type Clip = {
   previewError?: string
   previewReason?: string
   previewPoster?: string
+  timelineFrames?: string[]
   color: string
   waveSeed?: number
   linkId?: string
@@ -114,6 +115,8 @@ export type MediaAsset = {
   previewError?: string
   previewReason?: string
   previewPoster?: string
+  timelineFrames?: string[]
+  timelinePending?: boolean
   previewEncoder?: string
   previewDevice?: string
   previewHardware?: boolean

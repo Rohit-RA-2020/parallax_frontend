@@ -512,7 +512,7 @@ export function Editor() {
   }, [bootProject, loadChats])
 
   useEffect(() => {
-    if (!projectId || !assets.some((asset) => indexBusy(asset.indexState) || previewBusy(asset.previewState))) return
+    if (!projectId || !assets.some((asset) => indexBusy(asset.indexState) || previewBusy(asset))) return
     const timer = window.setInterval(() => {
       void refreshMedia(projectId, { silent: true })
     }, 2000)
@@ -1976,6 +1976,8 @@ function toMediaAsset(item: ProjectMedia): MediaAsset | null {
     previewError: item.preview?.error,
     previewReason: item.preview?.reason,
     previewPoster: item.preview?.poster_path ? API_BASE + item.preview.poster_path : undefined,
+    timelineFrames: item.preview?.timeline_frames?.map((frame) => API_BASE + frame),
+    timelinePending: item.preview?.timeline_pending,
     previewEncoder: item.preview?.encoder,
     previewDevice: item.preview?.device,
     previewHardware: item.preview?.hardware,
@@ -1992,8 +1994,8 @@ function indexBusy(state?: MediaIndexState) {
   return Boolean(state && INDEX_BUSY.includes(state))
 }
 
-function previewBusy(state?: MediaAsset['previewState']) {
-  return state === 'queued' || state === 'building'
+function previewBusy(asset: MediaAsset) {
+  return asset.previewState === 'queued' || asset.previewState === 'building' || asset.timelinePending === true
 }
 
 function toHistoryMessage(message: ChatMessage): HistoryMessage {
@@ -2296,6 +2298,7 @@ function syncClipMedia(clips: Clip[], assets: MediaAsset[]) {
       && next.previewError === clip.previewError
       && next.previewReason === clip.previewReason
       && next.previewPoster === clip.previewPoster
+      && (next.timelineFrames ?? []).join('\n') === (clip.timelineFrames ?? []).join('\n')
     ) {
       return clip
     }

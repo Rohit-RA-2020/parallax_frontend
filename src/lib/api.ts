@@ -66,6 +66,8 @@ export type MediaPreviewStatus = {
   state: PreviewState
   url_path?: string
   poster_path?: string
+  timeline_frames?: string[]
+  timeline_pending?: boolean
   progress?: string
   error?: string
   reason?: string
