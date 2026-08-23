@@ -1,16 +1,13 @@
 import { useEffect, useRef } from 'react'
-import {
-  AdditiveBlending,
-  BufferAttribute,
-  BufferGeometry,
-  CanvasTexture,
-  NormalBlending,
-  PerspectiveCamera,
-  Points,
-  PointsMaterial,
-  Scene,
-  WebGLRenderer,
-} from 'three'
+import { AdditiveBlending, NormalBlending } from 'three/src/constants.js'
+import { BufferAttribute } from 'three/src/core/BufferAttribute.js'
+import { BufferGeometry } from 'three/src/core/BufferGeometry.js'
+import { PerspectiveCamera } from 'three/src/cameras/PerspectiveCamera.js'
+import { Points } from 'three/src/objects/Points.js'
+import { PointsMaterial } from 'three/src/materials/PointsMaterial.js'
+import { Scene } from 'three/src/scenes/Scene.js'
+import { CanvasTexture } from 'three/src/textures/CanvasTexture.js'
+import { WebGLRenderer } from 'three/src/renderers/WebGLRenderer.js'
 import { useThemeStore, type Theme } from '../store/theme'
 
 type Props = {
