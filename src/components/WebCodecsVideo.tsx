@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { cloneElement, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { PreviewVideoProps } from './PreviewStage'
 import { createVideoFrameRenderer, type VideoFrameRenderer } from '../lib/videoFrameRenderer'
 import { fadeSlow } from '../lib/motion'
@@ -9,7 +9,7 @@ type DecoderEvent =
   | { type: 'frame'; generation: number; requestId: number; width: number; height: number; frame: VideoFrame }
   | { type: 'error'; generation: number; message: string }
 
-export function WebCodecsVideo({ fallback, ...props }: PreviewVideoProps & { fallback: ReactNode }) {
+export function WebCodecsVideo({ fallback, ...props }: PreviewVideoProps & { fallback: ReactElement<PreviewVideoProps> }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const workerRef = useRef<Worker | null>(null)
   const rendererRef = useRef<VideoFrameRenderer | null>(null)
@@ -82,8 +82,12 @@ export function WebCodecsVideo({ fallback, ...props }: PreviewVideoProps & { fal
 
   useEffect(() => {
     const worker = workerRef.current
-    if (!worker || state !== 'ready') return
-    const interval = props.isPlaying ? 1000 / 30 : 0
+    // Random-access decoding is excellent for a paused playhead, but repeatedly
+    // seeking for every playback frame is much slower than the browser's
+    // sequential video pipeline on long-GOP media. Native video owns playback;
+    // WebCodecs only supplies the exact frame while paused/scrubbing.
+    if (!worker || state !== 'ready' || props.isPlaying) return
+    const interval = 0
     const elapsed = performance.now() - lastSeekAtRef.current
     const send = () => {
       seekTimerRef.current = null
@@ -125,36 +129,40 @@ export function WebCodecsVideo({ fallback, ...props }: PreviewVideoProps & { fal
     }
   }
 
-  if (state === 'failed') return fallback
+  if (state === 'failed') return cloneElement(fallback, { active: true })
 
   return (
-    <motion.div
-      initial={props.reduce ? false : { opacity: 0 }}
-      animate={{ opacity: 1, scale: props.isPlaying ? 1.018 : 1.006 }}
-      exit={props.reduce ? undefined : { opacity: 0 }}
-      transition={{ opacity: { duration: 0.12 }, scale: { duration: 1.4, ease: 'linear' } }}
-      className="preview-plate absolute inset-0"
-      style={props.visualStyle}
-    >
-      {props.poster && (
-        <img src={props.poster} alt="" className="absolute inset-0 size-full object-contain" style={{ filter: props.filter }} />
-      )}
-      <canvas
-        ref={canvasRef}
-        className="relative size-full object-contain"
-        style={{ filter: props.filter, opacity: state === 'ready' ? 1 : 0 }}
-      />
-      {state === 'loading' && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ ...fadeSlow, delay: .15 }}
-          className="pointer-events-none absolute bottom-2 right-2 rounded bg-black/55 px-2 py-1 font-mono text-[9px] text-mute"
-        >
-          Preparing accelerated preview
-        </motion.div>
-      )}
-    </motion.div>
+    <>
+      {cloneElement(fallback, { active: props.isPlaying })}
+      <motion.div
+        initial={props.reduce ? false : { opacity: 0 }}
+        animate={{ opacity: props.isPlaying ? 0 : 1, scale: 1.006 }}
+        exit={props.reduce ? undefined : { opacity: 0 }}
+        transition={{ opacity: { duration: 0.08 }, scale: { duration: 1.4, ease: 'linear' } }}
+        className="preview-plate absolute inset-0"
+        style={{ ...props.visualStyle, pointerEvents: props.isPlaying ? 'none' : undefined }}
+        aria-hidden={props.isPlaying}
+      >
+        {props.poster && (
+          <img src={props.poster} alt="" className="absolute inset-0 size-full object-contain" style={{ filter: props.filter }} />
+        )}
+        <canvas
+          ref={canvasRef}
+          className="relative size-full object-contain"
+          style={{ filter: props.filter, opacity: state === 'ready' ? 1 : 0 }}
+        />
+        {state === 'loading' && !props.isPlaying && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ ...fadeSlow, delay: .15 }}
+            className="pointer-events-none absolute bottom-2 right-2 rounded bg-black/55 px-2 py-1 font-mono text-[9px] text-mute"
+          >
+            Preparing accelerated preview
+          </motion.div>
+        )}
+      </motion.div>
+    </>
   )
 }
 

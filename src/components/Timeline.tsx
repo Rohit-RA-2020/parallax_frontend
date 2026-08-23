@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent, type PointerEvent } from 'react'
+import { useMemo, useRef, useState, type DragEvent, type PointerEvent } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Captions, Eye, Link2, Magnet, Scissors, Type, Unlink, Volume2, X } from 'lucide-react'
 import type { Clip, MediaAsset, Track } from '../types'
@@ -40,6 +40,7 @@ type Props = {
   selectedId: string | null
   linkedIds: Set<string>
   currentTime: number
+  isPlaying: boolean
   duration: number
   pxPerSecond: number
   snapEnabled: boolean
@@ -67,6 +68,7 @@ export function Timeline({
   selectedId,
   linkedIds,
   currentTime,
+  isPlaying,
   duration,
   pxPerSecond,
   snapEnabled,
@@ -96,7 +98,7 @@ export function Timeline({
 
   const contentW = Math.max(duration * pxPerSecond + 80, 640)
   const playX = HEADER + currentTime * pxPerSecond
-  const ticks = buildTicks(duration, pxPerSecond)
+  const ticks = useMemo(() => buildTicks(duration, pxPerSecond), [duration, pxPerSecond])
   const threshold = snapEnabled ? snapThresholdSeconds(pxPerSecond) : 0
 
   function timeFromClientX(clientX: number) {
@@ -389,7 +391,12 @@ export function Timeline({
 
           <div
             className="pointer-events-none absolute top-0 bottom-0 z-30"
-            style={{ left: playX }}
+            style={{
+              left: 0,
+              transform: `translate3d(${playX}px, 0, 0)`,
+              transition: isPlaying ? 'transform 50ms linear' : 'none',
+              willChange: isPlaying ? 'transform' : 'auto',
+            }}
           >
             <div className="playhead-head absolute -top-0 -left-[5px] h-2 w-2.5 bg-mark" />
             <div className="h-full w-px bg-mark shadow-[0_0_8px_#ff4336]" />

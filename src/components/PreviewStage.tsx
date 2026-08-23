@@ -38,6 +38,8 @@ type Props = {
   duration: number
   projectId?: string
   timelineRevision?: number
+  inspectorClip?: Clip
+  onAudioVolume?: (id: string, volumeDb: number) => void
   onTogglePlay: () => void
   onSeek: (time: number) => void
   onToggleMute: () => void
@@ -61,6 +63,8 @@ export function PreviewStage({
   duration,
   projectId = '',
   timelineRevision = 0,
+  inspectorClip,
+  onAudioVolume,
   onTogglePlay,
   onSeek,
   onToggleMute,
@@ -211,7 +215,7 @@ export function PreviewStage({
                 muted={muted}
                 active={liveAudioIds.has(audio.id)}
                 rate={audio.playback?.rate ?? 1}
-                volumeDb={audio.audio?.volumeDb ?? 0}
+                volumeDb={propertyAt(audio, 'audio.volume_db', currentTime, audio.audio?.volumeDb ?? 0)}
                 clipMuted={audio.audio?.muted ?? false}
               />
             ) : null
@@ -429,7 +433,7 @@ export function PreviewStage({
         </IconButton>
       </div>
 
-      <ClipInspector program={program} frameLabel={frameLabel} />
+      <ClipInspector program={program} frameLabel={frameLabel} selectedClip={inspectorClip} onAudioVolume={onAudioVolume} />
     </section>
   )
 }
@@ -617,6 +621,7 @@ export type PreviewVideoProps = {
   reduce: boolean
   fallbackReason?: string
   onFrame?: (width: number, height: number) => void
+  active?: boolean
 }
 
 function NativePreviewVideo({
@@ -633,6 +638,7 @@ function NativePreviewVideo({
   reduce,
   fallbackReason,
   onFrame,
+  active = true,
 }: PreviewVideoProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [broken, setBroken] = useState(false)
@@ -640,11 +646,13 @@ function NativePreviewVideo({
   const sourceInRef = useRef(sourceIn)
   const currentTimeRef = useRef(currentTime)
   const isPlayingRef = useRef(isPlaying)
+  const activeRef = useRef(active)
   const onFrameRef = useRef(onFrame)
   startRef.current = start
   sourceInRef.current = sourceIn
   currentTimeRef.current = currentTime
   isPlayingRef.current = isPlaying
+  activeRef.current = active
   onFrameRef.current = onFrame
 
   useEffect(() => {
@@ -670,7 +678,7 @@ function NativePreviewVideo({
         sourceInRef.current,
         currentTimeRef.current,
         isPlayingRef.current,
-        true,
+        activeRef.current,
         rate,
       )
     }
@@ -698,9 +706,18 @@ function NativePreviewVideo({
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video) return
-    syncMediaClock(video, start, sourceIn, currentTime, isPlaying, true, rate)
-  }, [currentTime, isPlaying, start, sourceIn, rate])
+    if (!video || isPlaying) return
+    syncMediaClock(video, start, sourceIn, currentTime, false, active, rate)
+  }, [currentTime, isPlaying, active, start, sourceIn, rate])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !isPlaying) return
+    // Start from the playhead once, then let the browser's sequential media
+    // clock run freely. Re-seeking on every React clock update causes visible
+    // stalls on long-GOP sources.
+    syncMediaClock(video, start, sourceIn, currentTimeRef.current, true, active, rate)
+  }, [isPlaying, active, start, sourceIn, rate])
 
   return (
     <motion.div
@@ -709,7 +726,8 @@ function NativePreviewVideo({
       exit={reduce ? undefined : { opacity: 0 }}
       transition={{ opacity: { duration: 0.12 }, scale: { duration: 1.4, ease: 'linear' } }}
       className="preview-plate absolute inset-0"
-      style={visualStyle}
+      style={{ ...visualStyle, visibility: active ? undefined : 'hidden' }}
+      aria-hidden={!active}
     >
       {poster && (
         <img src={poster} alt="" className="absolute inset-0 size-full object-contain" style={{ filter }} />
@@ -830,7 +848,7 @@ function ProgramAudio({
   volumeDb: number
   clipMuted: boolean
 }) {
-  const mediaRef = useRef<HTMLVideoElement>(null)
+  const mediaRef = useRef<HTMLAudioElement>(null)
   const startRef = useRef(start)
   const sourceInRef = useRef(sourceIn)
   const currentTimeRef = useRef(currentTime)
@@ -879,12 +897,18 @@ function ProgramAudio({
 
   useEffect(() => {
     const media = mediaRef.current
-    if (!media) return
-    syncMediaClock(media, start, sourceIn, currentTime, isPlaying, active, rate)
+    if (!media || isPlaying) return
+    syncMediaClock(media, start, sourceIn, currentTime, false, active, rate)
   }, [currentTime, isPlaying, start, sourceIn, active, rate])
 
+  useEffect(() => {
+    const media = mediaRef.current
+    if (!media || !isPlaying) return
+    syncMediaClock(media, start, sourceIn, currentTimeRef.current, true, active, rate)
+  }, [isPlaying, start, sourceIn, active, rate])
+
   return (
-    <video
+    <audio
       ref={mediaRef}
       src={src}
       muted={muted}
@@ -895,11 +919,22 @@ function ProgramAudio({
   )
 }
 
-function ClipInspector({ program, frameLabel }: { program: ProgramFrame; frameLabel: string }) {
-  const clip = program.video?.clip ?? program.overlay?.clip ?? program.audio[0]?.clip
+function ClipInspector({
+  program,
+  frameLabel,
+  selectedClip,
+  onAudioVolume,
+}: {
+  program: ProgramFrame
+  frameLabel: string
+  selectedClip?: Clip
+  onAudioVolume?: (id: string, volumeDb: number) => void
+}) {
+  const clip = selectedClip ?? program.video?.clip ?? program.overlay?.clip ?? program.audio[0]?.clip
+  const volumeDb = clip?.audio?.volumeDb ?? 0
   return (
     <div className="chrome flex h-9 shrink-0 items-center gap-5 border-t border-line px-4 text-[11px]">
-      <span className="w-28 truncate text-mute">{program.gap && !clip ? 'Gap' : programLabel(program)}</span>
+      <span className="w-28 truncate text-mute">{clip ? clip.name : program.gap ? 'Gap' : programLabel(program)}</span>
       {clip && (
         <>
           <span className="font-mono text-dim">{formatRange(clip.start, clip.duration)}</span>
@@ -912,6 +947,29 @@ function ClipInspector({ program, frameLabel }: { program: ProgramFrame; frameLa
           <span className="text-dim">
             Dur <span className="font-mono text-mute">{formatTimecode(clip.duration)}</span>
           </span>
+          {clip.kind === 'audio' && onAudioVolume && (
+            <label className="ml-auto flex min-w-52 items-center gap-2 text-dim">
+              <span>Gain</span>
+              <input
+                type="range"
+                min={-60}
+                max={12}
+                step={1}
+                value={volumeDb}
+                aria-label={`Gain for ${clip.name}`}
+                onChange={(event) => onAudioVolume(clip.id, Number(event.target.value))}
+                className="h-1 w-28 accent-[var(--color-live)]"
+              />
+              <output className="w-12 text-right font-mono text-mute">{volumeDb > 0 ? '+' : ''}{volumeDb} dB</output>
+              <button
+                type="button"
+                className="rounded px-1.5 py-0.5 text-dim hover:bg-wash hover:text-cream"
+                onClick={() => onAudioVolume(clip.id, 0)}
+              >
+                Reset
+              </button>
+            </label>
+          )}
           {frameLabel && program.video && (
             <span className="text-dim">
               Frame <span className="font-mono text-mute">{frameLabel}</span>

@@ -659,6 +659,13 @@ export function Editor() {
     let raf = 0
     let last = performance.now()
     const tick = (now: number) => {
+      // The media elements advance independently. Updating the full editor at
+      // display refresh rate makes a large timeline compete with decoding, so
+      // keep UI clocks at a stable 30 Hz while playback remains full-rate.
+      if (now - last < 1000 / 30) {
+        raf = requestAnimationFrame(tick)
+        return
+      }
       const dt = (now - last) / 1000
       last = now
       setCurrentTime((t) => {
@@ -803,6 +810,11 @@ export function Editor() {
   const program = useMemo(() => programAtTime(clips, currentTime), [clips, currentTime])
   const audioClips = useMemo(() => sequenceAudioClips(clips), [clips])
   const selected = clips.find((c) => c.id === selectedId)
+  const inspectorClip = selected?.kind === 'audio'
+    ? selected
+    : selected?.linkId
+      ? clips.find((clip) => clip.kind === 'audio' && clip.linkId === selected.linkId) ?? selected
+      : selected
   const selectedIds = useMemo(() => new Set(selectedId ? linkedIds(clips, selectedId) : []), [clips, selectedId])
   const canUnlink = selectedIds.size > 1
 
@@ -839,6 +851,15 @@ export function Editor() {
     }
     setClips((prev) => prev.map((c) => (
       ids.has(c.id) ? { ...c, start: nextStart } : c
+    )))
+  }
+
+  function setAudioVolume(id: string, volumeDb: number) {
+    const gain = Math.min(12, Math.max(-60, Math.round(volumeDb * 10) / 10))
+    setClips((current) => current.map((clip) => (
+      clip.id === id && clip.kind === 'audio'
+        ? { ...clip, audio: { ...clip.audio, volumeDb: gain } }
+        : clip
     )))
   }
 
@@ -1571,6 +1592,8 @@ export function Editor() {
             duration={duration}
             projectId={projectId}
             timelineRevision={revision}
+            inspectorClip={inspectorClip}
+            onAudioVolume={setAudioVolume}
             onTogglePlay={() => setIsPlaying((p) => !p)}
             onSeek={seek}
             onToggleMute={() => setMuted((m) => !m)}
@@ -1590,6 +1613,7 @@ export function Editor() {
             selectedId={selectedId}
             linkedIds={selectedIds}
             currentTime={currentTime}
+            isPlaying={isPlaying}
             duration={duration}
             pxPerSecond={pxPerSecond}
             snapEnabled={snapEnabled}
