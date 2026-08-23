@@ -160,6 +160,10 @@ export type DirectorActivity = {
   arguments?: unknown
   iteration?: number
   elapsedMs?: number
+  progressPhase?: string
+  progressPercent?: number
+  progressCurrent?: number
+  progressTotal?: number
 }
 
 export type Grade = {

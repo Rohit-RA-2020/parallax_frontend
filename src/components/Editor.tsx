@@ -91,6 +91,7 @@ import { createStreamTextQueue, type StreamTextQueue } from '../lib/streamText'
 import { stripThoughtMarkup, stripThoughtTags } from '../lib/thought'
 
 const MEDIA_GENERATION_TOOLS = new Set([
+  'download_youtube_video',
   'generate_image',
   'generate_video',
   'generate_voiceover',
@@ -1355,6 +1356,31 @@ export function Editor() {
           })
           setToast(`Director is running ${name.replaceAll('_', ' ')}`)
         }
+        if (event.type === 'tool_progress') {
+          const toolID = typeof event.data.id === 'string' ? event.data.id : ''
+          const id = `tool-${toolID}`
+          const progress = {
+            progressPhase: typeof event.data.phase === 'string' ? event.data.phase : undefined,
+            progressPercent: numberValue(event.data.percent) ?? undefined,
+            progressCurrent: numberValue(event.data.current) ?? undefined,
+            progressTotal: numberValue(event.data.total) ?? undefined,
+          }
+          setActivity((current) => {
+            const index = current.findIndex((item) => item.id === id)
+            if (index < 0) return current
+            const next = [...current]
+            next[index] = { ...next[index], ...progress }
+            activityRef.current = next
+            return next
+          })
+          setMessages((current) => updateStreamActivity(current, responseID, {
+            id,
+            kind: 'tool',
+            status: 'active',
+            title: typeof event.data.name === 'string' ? toolLabel(event.data.name) : 'Downloading a YouTube video',
+            ...progress,
+          }))
+        }
         if (event.type === 'tool_result') {
           const toolID = typeof event.data.id === 'string' ? event.data.id : ''
           const ok = event.data.ok === true
@@ -1906,6 +1932,7 @@ function toolLabel(name: string, args?: unknown) {
   if (name === 'generate_image' && imageToolHasSource(args)) return 'Editing an image'
   const labels: Record<string, string> = {
     search_web: 'Searching the web',
+    download_youtube_video: 'Downloading a YouTube video',
     generate_image: 'Generating an image',
     search_images: 'Searching stills',
     get_image_caption: 'Reading the still description',

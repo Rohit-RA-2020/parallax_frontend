@@ -510,6 +510,21 @@ textarea {
   opacity: 0.9;
 }
 
+.youtube-progress {
+  width: min(17rem, calc(100% - 1.25rem));
+}
+
+.youtube-progress-track {
+  height: 2px;
+  background: color-mix(in srgb, var(--color-line-strong) 72%, transparent);
+}
+
+.youtube-progress-fill {
+  min-width: 2px;
+  background: color-mix(in srgb, var(--color-live) 78%, var(--color-cream));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-live) 18%, transparent);
+}
+
 .activity-inline-detail {
   border-left: 1px solid var(--color-line);
   color: var(--color-dim);

@@ -953,6 +953,11 @@ function LiveTranscript({
   const currentEntry = liveEntries[Math.min(displayIndex, maxDisplayIndex)] ?? liveEntries[0]
   const canExpand = visibleParts.length > 0
   const currentTool = currentEntry.tool
+  const activeDownload = visibleParts.findLast((part): part is Extract<ChatPart, { kind: 'activity' }> => (
+    part.kind === 'activity'
+      && part.activity.name === 'download_youtube_video'
+      && part.activity.status === 'active'
+  ))
 
   useEffect(() => {
     if (displayIndexRef.current > maxDisplayIndex) {
@@ -1014,6 +1019,7 @@ function LiveTranscript({
         <span className="shrink-0 font-mono text-[8px] text-dim/70">{formatWorkDuration(elapsedMs)}</span>
         {canExpand && <ChevronRight size={11} className={cn('shrink-0 text-dim transition-transform', expanded && 'rotate-90')} />}
       </button>
+      {activeDownload && <YouTubeDownloadProgress item={activeDownload.activity} reduce={reduce} />}
       <AnimatePresence initial={false}>
         {expanded && canExpand && (
           <motion.div
@@ -1160,6 +1166,26 @@ function InlineActivity({ item, reduce }: { item: DirectorActivity; reduce: bool
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+function YouTubeDownloadProgress({ item, reduce }: { item: DirectorActivity; reduce: boolean }) {
+  const progressPercent = Math.min(100, Math.max(0, item.progressPercent ?? 0))
+  return (
+    <div className="youtube-progress ml-4 mt-0.5" role="progressbar" aria-label="YouTube download progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progressPercent)}>
+      <div className="flex items-center justify-between gap-3 text-[8px] leading-none text-dim/75">
+        <span className="truncate">{item.progressPhase || 'Starting download'}</span>
+        <span className="shrink-0 font-mono tabular-nums">{Math.round(progressPercent)}%</span>
+      </div>
+      <div className="youtube-progress-track mt-1.5 overflow-hidden rounded-full">
+        <motion.div
+          className="youtube-progress-fill h-full rounded-full"
+          initial={false}
+          animate={{ width: `${progressPercent}%` }}
+          transition={reduce ? { duration: 0 } : { duration: 0.28, ease: 'easeOut' }}
+        />
+      </div>
     </div>
   )
 }
