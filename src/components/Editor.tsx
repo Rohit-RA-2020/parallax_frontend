@@ -107,6 +107,7 @@ export function Editor() {
   const [mediaWidth, setMediaWidth] = useState(() => readNumberPref('parallax.mediaWidth', 268, 220, 420))
   const [chatWidth, setChatWidth] = useState(() => readNumberPref('parallax.chatWidth', 360, 300, 520))
   const [currentTime, setCurrentTime] = useState(0)
+  const [seekToken, setSeekToken] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
   const [safeArea, setSafeArea] = useState(false)
@@ -568,6 +569,10 @@ export function Editor() {
 
   const seek = useCallback((time: number) => {
     setCurrentTime(Math.min(durationRef.current, Math.max(0, time)))
+    // Playback intentionally lets native media advance without being
+    // re-seeked on every React clock tick. Increment this token for explicit
+    // user seeks so playing video and audio jump to the new playhead too.
+    setSeekToken((value) => value + 1)
   }, [])
 
   const removeClip = useCallback((id: string) => {
@@ -1609,6 +1614,7 @@ export function Editor() {
         <div className="flex min-w-0 flex-1 flex-col">
           <PreviewStage
             currentTime={currentTime}
+            seekToken={seekToken}
             isPlaying={isPlaying}
             muted={muted}
             safeArea={safeArea}

@@ -24,15 +24,19 @@ export default defineConfig({
               priority: 25,
             },
             {
+              // Three.js has classes that extend types from neighboring
+              // modules. Splitting the package by size can turn those module
+              // relationships into circular chunks with undefined bases.
               name: 'three-vendor',
               test: /node_modules[\\/](?:\.pnpm[\\/][^\\/]+[\\/]node_modules[\\/])?three[\\/]/,
-              maxSize: 350_000,
               priority: 20,
             },
             {
+              // Keep this group intact. Radix's remove-scroll packages contain
+              // module-level initialization cycles that break when maxSize
+              // divides the group into mutually importing chunks.
               name: 'editor-vendor',
               test: /node_modules[\\/](?:\.pnpm[\\/][^\\/]+[\\/]node_modules[\\/])?(?:@radix-ui|@floating-ui|dompurify|lucide-react|marked|tus-js-client|zustand)[\\/]/,
-              maxSize: 350_000,
               priority: 15,
             },
           ],

@@ -29,6 +29,7 @@ const Atmosphere = lazy(() => import('./Atmosphere').then(({ Atmosphere: compone
 
 type Props = {
   currentTime: number
+  seekToken: number
   isPlaying: boolean
   muted: boolean
   safeArea: boolean
@@ -54,6 +55,7 @@ type Props = {
 
 export function PreviewStage({
   currentTime,
+  seekToken,
   isPlaying,
   muted,
   safeArea,
@@ -211,6 +213,7 @@ export function PreviewStage({
                 start={audio.start}
                 sourceIn={audio.sourceIn ?? 0}
                 currentTime={currentTime}
+                seekToken={seekToken}
                 isPlaying={isPlaying}
                 muted={muted}
                 active={liveAudioIds.has(audio.id)}
@@ -254,6 +257,7 @@ export function PreviewStage({
                 start={program.video.clip.start}
                 sourceIn={program.video.clip.sourceIn ?? 0}
                 currentTime={currentTime}
+                seekToken={seekToken}
                 isPlaying={isPlaying}
                 muted
                 filter={pictureFilter}
@@ -613,6 +617,7 @@ export type PreviewVideoProps = {
   start: number
   sourceIn: number
   currentTime: number
+  seekToken: number
   isPlaying: boolean
   muted: boolean
   filter: string
@@ -630,6 +635,7 @@ function NativePreviewVideo({
   start,
   sourceIn,
   currentTime,
+  seekToken,
   isPlaying,
   muted,
   filter,
@@ -718,6 +724,15 @@ function NativePreviewVideo({
     // stalls on long-GOP sources.
     syncMediaClock(video, start, sourceIn, currentTimeRef.current, true, active, rate)
   }, [isPlaying, active, start, sourceIn, rate])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    // currentTime is also advanced by the playback clock. seekToken marks an
+    // explicit timeline click so a playing native video seeks without
+    // re-seeking on every ordinary clock update.
+    syncMediaClock(video, start, sourceIn, currentTimeRef.current, isPlayingRef.current, active, rate)
+  }, [seekToken, active, start, sourceIn, rate])
 
   return (
     <motion.div
@@ -829,6 +844,7 @@ function ProgramAudio({
   start,
   sourceIn,
   currentTime,
+  seekToken,
   isPlaying,
   muted,
   active,
@@ -841,6 +857,7 @@ function ProgramAudio({
   start: number
   sourceIn: number
   currentTime: number
+  seekToken: number
   isPlaying: boolean
   muted: boolean
   active: boolean
@@ -906,6 +923,14 @@ function ProgramAudio({
     if (!media || !isPlaying) return
     syncMediaClock(media, start, sourceIn, currentTimeRef.current, true, active, rate)
   }, [isPlaying, start, sourceIn, active, rate])
+
+  useEffect(() => {
+    const media = mediaRef.current
+    if (!media) return
+    // Keep linked audio aligned when the user clicks a new position while
+    // playback is already running.
+    syncMediaClock(media, start, sourceIn, currentTimeRef.current, isPlayingRef.current, active, rate)
+  }, [seekToken, start, sourceIn, active, rate])
 
   return (
     <audio
