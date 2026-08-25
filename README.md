@@ -1,5 +1,7 @@
 # Parallax frontend
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Rohit-RA-2020/parallax_frontend)
+
 React/Vite editor for the Parallax project-scoped media agent.
 
 ## Run locally
