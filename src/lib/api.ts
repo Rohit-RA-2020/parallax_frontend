@@ -93,6 +93,8 @@ export type ProjectMedia = {
   width?: number
   height?: number
   modified_at: string
+  origin?: 'gif' | string
+  has_audio?: boolean
   transcript?: TranscriptIndexStatus
   preview?: MediaPreviewStatus
 }
@@ -199,6 +201,37 @@ export async function searchProjectMedia(projectID: string, query: string, limit
     `/v1/projects/${projectID}/media/search?q=${encodeURIComponent(q)}&limit=${limit}`,
   )
   return result.results ?? []
+}
+
+export type GIFSearchResult = {
+  id: string
+  title: string
+  provider: 'giphy' | 'klipy' | string
+  preview_url: string
+  width?: number
+  height?: number
+  import_ref: string
+}
+
+export type GIFSearchResponse = {
+  query: string
+  results: GIFSearchResult[]
+  providers: string[]
+  offset: number
+  next_offset?: number
+  has_more: boolean
+}
+
+export function searchGIFs(query: string, limit = 24, offset = 0, signal?: AbortSignal) {
+  return request<GIFSearchResponse>(`/v1/gifs/search?q=${encodeURIComponent(query.trim())}&limit=${limit}&offset=${offset}`, { signal })
+}
+
+export function importGIF(projectID: string, importRef: string) {
+  return request<ProjectMedia>(`/v1/projects/${projectID}/gifs/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ import_ref: importRef }),
+  })
 }
 
 export async function listProjectMedia(projectID: string) {

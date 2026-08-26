@@ -1,19 +1,20 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { Check, Copy, Music2, ScanSearch, Search, Trash2, Type } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Check, Copy, LoaderCircle, Music2, Plus, ScanSearch, Search, Sparkles, Trash2, Type } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { formatClock, formatDurationMs, realtimeFactor } from '../lib/time'
 import { cn } from '../lib/cn'
 import { fade, softSpring } from '../lib/motion'
 import { ASSET_MIME, setDraggingAsset } from '../lib/edit'
-import { searchProjectMedia, type MediaSearchHit } from '../lib/api'
+import { importGIF, searchGIFs, searchProjectMedia, type GIFSearchResult, type MediaSearchHit } from '../lib/api'
 import type { MediaAsset, MediaIndexState, MediaIndexTimings, MediaKind, MediaPreviewTimings, ToolId } from '../types'
 
-type BinTab = MediaKind | 'all' | 'image'
+type BinTab = MediaKind | 'all' | 'image' | 'gif'
 
 const tabs: { id: BinTab; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'video', label: 'Video' },
   { id: 'image', label: 'Stills' },
+  { id: 'gif', label: 'GIFs' },
   { id: 'audio', label: 'Audio' },
 ]
 
@@ -34,15 +35,24 @@ type Props = {
   onAdd: (asset: MediaAsset) => void
   onDelete?: (asset: MediaAsset) => void
   onDescribe?: (asset: MediaAsset) => void
+  onGIFImported?: () => void
 }
 
-export function MediaPanel({ width, tool, projectId, assets, loading, hasProject, onDuration, onFrame, onAdd, onDelete, onDescribe }: Props) {
+export function MediaPanel({ width, tool, projectId, assets, loading, hasProject, onDuration, onFrame, onAdd, onDelete, onDescribe, onGIFImported }: Props) {
   const reduce = useReducedMotion()
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<BinTab>('all')
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [hits, setHits] = useState<MediaSearchHit[]>([])
   const [searching, setSearching] = useState(false)
+  const [gifResults, setGIFResults] = useState<GIFSearchResult[]>([])
+  const [gifProviders, setGIFProviders] = useState<string[]>([])
+  const [gifError, setGIFError] = useState('')
+  const [importingGIF, setImportingGIF] = useState<string | null>(null)
+  const [gifNextOffset, setGIFNextOffset] = useState(0)
+  const [gifHasMore, setGIFHasMore] = useState(false)
+  const [gifLoadingMore, setGIFLoadingMore] = useState(false)
+  const [gifLoadedQuery, setGIFLoadedQuery] = useState('')
   const now = useNow(assets.some((asset) => indexBusy(asset.indexState) || asset.previewState === 'queued' || asset.previewState === 'building'))
 
   const forced = toolFilter[tool]
@@ -51,7 +61,7 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
 
   useEffect(() => {
     const needle = query.trim()
-    if (!projectId || !needle) {
+    if (activeTab === 'gif' || !projectId || !needle) {
       setHits([])
       setSearching(false)
       return
@@ -74,7 +84,67 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
       live = false
       window.clearTimeout(timer)
     }
-  }, [projectId, query])
+  }, [activeTab, projectId, query])
+
+  useEffect(() => {
+    const needle = query.trim()
+    if (activeTab !== 'gif' || needle.length < 2) {
+      setGIFResults([])
+      setGIFProviders([])
+      setGIFError('')
+      setGIFNextOffset(0)
+      setGIFHasMore(false)
+      setGIFLoadedQuery('')
+      setSearching(false)
+      return
+    }
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      setSearching(true)
+      setGIFError('')
+      void searchGIFs(needle, 24, 0, controller.signal)
+        .then((response) => {
+          setGIFResults(response.results ?? [])
+          setGIFProviders(response.providers ?? [])
+          setGIFNextOffset(response.next_offset ?? 0)
+          setGIFHasMore(response.has_more === true)
+          setGIFLoadedQuery(needle)
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return
+          setGIFResults([])
+          setGIFError(error instanceof Error ? error.message : 'GIF search failed')
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSearching(false)
+        })
+    }, 320)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [activeTab, query])
+
+  const loadMoreGIFs = useCallback(async () => {
+    const needle = query.trim()
+    if (activeTab !== 'gif' || needle !== gifLoadedQuery || !gifHasMore || !gifNextOffset || gifLoadingMore || searching) return
+    setGIFLoadingMore(true)
+    setGIFError('')
+    try {
+      const response = await searchGIFs(needle, 24, gifNextOffset)
+      setGIFResults((current) => {
+        const seen = new Set(current.map((item) => `${item.provider}:${item.id}`))
+        return [...current, ...(response.results ?? []).filter((item) => !seen.has(`${item.provider}:${item.id}`))]
+      })
+      setGIFProviders((current) => Array.from(new Set([...current, ...(response.providers ?? [])])).sort())
+      setGIFNextOffset(response.next_offset ?? 0)
+      setGIFHasMore(response.has_more === true)
+    } catch (error) {
+      setGIFError(error instanceof Error ? error.message : 'Could not load more GIFs')
+    } finally {
+      setGIFLoadingMore(false)
+    }
+  }, [activeTab, gifHasMore, gifLoadedQuery, gifLoadingMore, gifNextOffset, query, searching])
 
   const hitByPath = useMemo(() => {
     const map = new Map<string, MediaSearchHit>()
@@ -88,6 +158,7 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
   }, [hits])
 
   const items = useMemo(() => {
+    if (activeTab === 'gif') return []
     const needle = query.trim().toLowerCase()
     const filtered = assets.filter((asset) => {
       const matchesTab =
@@ -109,6 +180,20 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
       return a.name.localeCompare(b.name)
     })
   }, [activeTab, assets, hitByPath, query])
+
+  async function addGIF(item: GIFSearchResult) {
+    if (!projectId || importingGIF) return
+    setImportingGIF(item.import_ref)
+    setGIFError('')
+    try {
+      await importGIF(projectId, item.import_ref)
+      onGIFImported?.()
+    } catch (error) {
+      setGIFError(error instanceof Error ? error.message : 'Could not import GIF')
+    } finally {
+      setImportingGIF(null)
+    }
+  }
 
   const heading =
     tool === 'titles'
@@ -139,7 +224,7 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
           </AnimatePresence>
         </h2>
         <span className="font-mono text-[10px] text-dim">
-          {tool === 'effects' || tool === 'transitions' ? 4 : items.length}
+          {tool === 'effects' || tool === 'transitions' ? 4 : activeTab === 'gif' ? gifResults.length : items.length}
         </span>
       </div>
 
@@ -153,7 +238,7 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search stills, shots, speech"
+                placeholder={activeTab === 'gif' ? 'Search reactions, memes, moments' : 'Search stills, shots, speech'}
                 className="w-full bg-transparent text-[12px] text-cream outline-none placeholder:text-dim"
               />
               {searching && <span className="shrink-0 text-[10px] text-dim">Searching</span>}
@@ -168,7 +253,22 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
             />
           )}
 
-          <div className="grid grid-cols-1 content-start gap-3 overflow-y-auto px-3 pb-4 scroll-thin">
+          {activeTab === 'gif' ? (
+            <GIFBrowser
+              query={query}
+              results={gifResults}
+              providers={gifProviders}
+              searching={searching}
+              error={gifError}
+              hasProject={hasProject}
+              importing={importingGIF}
+              hasMore={gifHasMore}
+              loadingMore={gifLoadingMore}
+              onQuery={setQuery}
+              onImport={(item) => void addGIF(item)}
+              onLoadMore={() => void loadMoreGIFs()}
+            />
+          ) : <div className="grid grid-cols-1 content-start gap-3 overflow-y-auto px-3 pb-4 scroll-thin">
             {!loading && items.length === 0 && (
               <div className="rounded-lg border border-dashed border-line px-3 py-8 text-center text-[11px] leading-relaxed text-dim">
                 {hasProject ? 'No matching media. Upload files or ask Director to generate a still.' : 'Create a project to start uploading media.'}
@@ -296,7 +396,7 @@ export function MediaPanel({ width, tool, projectId, assets, loading, hasProject
                 </div>
               </motion.div>
             ))}
-          </div>
+          </div>}
         </>
       )}
     </aside>
@@ -373,6 +473,149 @@ function BinTabs({
       </div>
     </div>
   )
+}
+
+const GIF_IDEAS = ['reaction', 'mind blown', 'awkward', 'celebration']
+
+function GIFBrowser({
+  query,
+  results,
+  providers,
+  searching,
+  error,
+  hasProject,
+  importing,
+  hasMore,
+  loadingMore,
+  onQuery,
+  onImport,
+  onLoadMore,
+}: {
+  query: string
+  results: GIFSearchResult[]
+  providers: string[]
+  searching: boolean
+  error: string
+  hasProject: boolean
+  importing: string | null
+  hasMore: boolean
+  loadingMore: boolean
+  onQuery: (query: string) => void
+  onImport: (item: GIFSearchResult) => void
+  onLoadMore: () => void
+}) {
+  const needle = query.trim()
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const node = loadMoreRef.current
+    if (!node || !hasMore || loadingMore) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) onLoadMore()
+    }, { rootMargin: '240px 0px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [hasMore, loadingMore, onLoadMore])
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 scroll-thin">
+      {!needle && (
+        <div className="rounded-lg border border-dashed border-line bg-lift/40 px-3 py-5">
+          <div className="flex items-center gap-2 text-[11px] font-medium text-cream">
+            <Sparkles size={13} className="text-live" /> Find the visual beat
+          </div>
+          <p className="mt-1.5 text-[10px] leading-relaxed text-dim">
+            Search by emotion or moment. Results blend GIPHY and KLIPY automatically.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {GIF_IDEAS.map((idea) => (
+              <button
+                key={idea}
+                type="button"
+                onClick={() => onQuery(idea)}
+                className="rounded-full border border-line px-2 py-1 text-[10px] text-mute transition-colors hover:border-mute hover:text-cream"
+              >
+                {idea}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {needle.length === 1 && <div className="py-8 text-center text-[10px] text-dim">Type one more character to search.</div>}
+      {error && <div className="mb-3 rounded-md border border-mark/30 bg-mark/10 px-2.5 py-2 text-[10px] leading-relaxed text-mark">{error}</div>}
+      {needle.length >= 2 && !searching && !error && results.length === 0 && (
+        <div className="py-8 text-center text-[10px] text-dim">No GIFs found. Try a simpler emotion or action.</div>
+      )}
+
+      {results.length > 0 && (
+        <div className="mb-2 flex items-center justify-between text-[9px] text-dim">
+          <span>{results.length} results</span>
+          <span>{providers.map(providerLabel).join(' + ')}</span>
+        </div>
+      )}
+
+      <div className="flex items-start gap-2">
+        {[results.filter((_, index) => index % 2 === 0), results.filter((_, index) => index % 2 === 1)].map((column, columnIndex) => (
+          <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-2">
+            {column.map((item) => (
+              <GIFResultCard
+                key={`${item.provider}-${item.id}`}
+                item={item}
+                busy={importing === item.import_ref}
+                disabled={!hasProject || importing !== null}
+                onImport={onImport}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+      {(hasMore || loadingMore) && (
+        <div ref={loadMoreRef} className="flex h-12 items-center justify-center text-[10px] text-dim">
+          {loadingMore && <><LoaderCircle size={12} className="mr-1.5 animate-spin" /> Loading more GIFs</>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GIFResultCard({
+  item,
+  busy,
+  disabled,
+  onImport,
+}: {
+  item: GIFSearchResult
+  busy: boolean
+  disabled: boolean
+  onImport: (item: GIFSearchResult) => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={`Add ${item.title || 'GIF'} to media`}
+      onClick={() => onImport(item)}
+      className="group relative w-full overflow-hidden rounded-md border border-line bg-lift text-left transition-all hover:-translate-y-0.5 hover:border-mute disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      <div
+        className="relative w-full overflow-hidden bg-black/40"
+        style={{ aspectRatio: item.width && item.height ? `${item.width} / ${item.height}` : '1 / 1' }}
+      >
+        <img src={item.preview_url} alt={item.title || 'GIF result'} loading="lazy" className="size-full object-cover" />
+        <span className="absolute top-1 left-1 rounded bg-black/65 px-1 py-0.5 text-[8px] font-medium tracking-wide text-white/80 uppercase">
+          {providerLabel(item.provider)}
+        </span>
+        <span className="absolute right-1 bottom-1 grid size-6 place-items-center rounded-full bg-cream text-ink opacity-0 shadow transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+          {busy ? <LoaderCircle size={12} className="animate-spin" /> : <Plus size={13} />}
+        </span>
+      </div>
+      <div className="truncate px-1.5 py-1 text-[9px] text-mute">{item.title || 'Untitled GIF'}</div>
+    </button>
+  )
+}
+
+function providerLabel(provider: string) {
+  return provider.toLowerCase() === 'giphy' ? 'GIPHY' : provider.toLowerCase() === 'klipy' ? 'KLIPY' : provider.toUpperCase()
 }
 
 function HoverVideo({

@@ -93,7 +93,7 @@ export function clipsFromAsset(asset: MediaAsset, start: number, track?: string)
       ? track
       : defaultTrack(asset.kind)
   const primary = clipFromAsset(asset, start, placedTrack)
-  if (asset.kind !== 'video' || asset.mediaType === 'image') {
+  if (asset.kind !== 'video' || asset.mediaType === 'image' || asset.origin === 'gif' || asset.hasAudio === false) {
     return [primary]
   }
 

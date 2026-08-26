@@ -124,6 +124,8 @@ export type MediaAsset = {
   previewTimings?: MediaPreviewTimings
   previewStartedAt?: string
   canDescribe?: boolean
+  origin?: 'gif'
+  hasAudio?: boolean
 }
 
 export type ChatRole = 'user' | 'assistant'

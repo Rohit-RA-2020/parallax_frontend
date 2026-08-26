@@ -1599,6 +1599,12 @@ export function Editor() {
                   onAdd={(asset) => addAsset(asset)}
                   onDelete={(asset) => void deleteAsset(asset)}
                   onDescribe={(asset) => void describeAsset(asset)}
+                  onGIFImported={() => {
+                    if (projectId) {
+                      void refreshMedia(projectId)
+                      void refreshHistory(projectId)
+                    }
+                  }}
                 />
               )}
             </motion.div>
@@ -1943,6 +1949,8 @@ function toolLabel(name: string, args?: unknown) {
     download_youtube_video: 'Downloading a YouTube video',
     generate_image: 'Generating an image',
     search_images: 'Searching stills',
+    search_gifs: 'Searching GIFs',
+    import_gif: 'Adding GIF to media',
     get_image_caption: 'Reading the still description',
     search_scenes: 'Searching video shots',
     get_video_scenes: 'Reading video scenes',
@@ -2020,7 +2028,13 @@ function toMediaAsset(item: ProjectMedia): MediaAsset | null {
     previewTimings: item.preview?.timings,
     previewStartedAt: item.preview?.started_at,
     canDescribe: item.transcript?.can_describe === true,
+    origin: item.origin === 'gif' || looksLikeGIFImport(item.name) ? 'gif' : undefined,
+    hasAudio: item.has_audio,
   }
+}
+
+function looksLikeGIFImport(name: string) {
+  return /(?:-gif\.(?:mp4|webm)|\.gif(?:\.|$))/i.test(name)
 }
 
 const INDEX_BUSY: MediaIndexState[] = ['queued', 'transcribing', 'translating', 'describing', 'indexing']
