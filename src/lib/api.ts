@@ -124,17 +124,19 @@ export type AgentEvent = {
   data: Record<string, unknown>
 }
 
-export type ThinkingEffort = 'low' | 'medium' | 'high'
+export type ThinkingEffort = 'none' | 'low' | 'medium' | 'high'
 
 export const DEFAULT_THINKING_EFFORT: ThinkingEffort = 'medium'
 
 export function normalizeThinkingEffort(value: string | null | undefined): ThinkingEffort {
-  return value === 'low' || value === 'high' ? value : DEFAULT_THINKING_EFFORT
+  return value === 'none' || value === 'low' || value === 'high' ? value : DEFAULT_THINKING_EFFORT
 }
 
 export type LLMProfile = {
   id: string
   label?: string
+  provider_id?: string
+  provider_label?: string
   base_url: string
   model: string
   api_key_set: boolean
@@ -623,17 +625,23 @@ export function normalizeSettings(raw: Partial<LLMSettings> | null | undefined):
   const baseURL = raw?.base_url ?? ''
   const model = raw?.model ?? ''
   const apiKeySet = !!raw?.api_key_set
-  if (raw?.profiles?.length) {
+  const profiles = Array.isArray(raw?.profiles)
+    ? raw.profiles
+      .filter((profile): profile is LLMProfile => Boolean(profile?.id?.trim()))
+      .map((profile) => ({ ...profile, id: profile.id.trim() }))
+    : []
+  const activeID = raw?.active_id?.trim() ?? ''
+  if (profiles.length) {
     return {
-      active_id: raw.active_id || raw.profiles[0].id,
-      base_url: baseURL || raw.profiles[0].base_url,
-      model: model || raw.profiles[0].model,
-      api_key_set: apiKeySet || raw.profiles[0].api_key_set,
-      profiles: raw.profiles,
+      active_id: activeID || profiles[0].id,
+      base_url: baseURL || profiles[0].base_url,
+      model: model || profiles[0].model,
+      api_key_set: apiKeySet || profiles[0].api_key_set,
+      profiles,
     }
   }
   const fallback: LLMProfile = {
-    id: raw?.active_id || 'default',
+    id: activeID || 'default',
     base_url: baseURL,
     model,
     api_key_set: apiKeySet,

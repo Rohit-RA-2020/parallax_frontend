@@ -1509,10 +1509,12 @@ export function Editor() {
   }
 
   async function selectModel(id: string) {
+    const nextID = typeof id === 'string' ? id.trim() : ''
+    if (!nextID) return
     const previous = settingsRef.current
-    setSettings((current) => current ? { ...current, active_id: id } : current)
+    setSettings((current) => current ? { ...current, active_id: nextID } : current)
     try {
-      setSettings(normalizeSettings(await putSettings({ active_id: id })))
+      setSettings(normalizeSettings(await putSettings({ active_id: nextID })))
     } catch (error) {
       setSettings(previous)
       setToast(errorMessage(error))

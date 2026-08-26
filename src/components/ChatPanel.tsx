@@ -3,7 +3,7 @@ import { ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Do
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { ChatMessage, ChatPart, Clip, DirectorActivity } from '../types'
 import type { ChatRecord, LLMProfile, ThinkingEffort } from '../lib/api'
-import { profileLabel } from '../lib/api'
+import { groupLLMProfiles } from '../lib/llmSettings'
 import { filesToChatImages, type ChatImagePayload } from '../lib/chatImage'
 import { formatRange } from '../lib/time'
 import { cn } from '../lib/cn'
@@ -84,6 +84,9 @@ export function ChatPanel({
   const exportMenu = useRef<HTMLDivElement>(null)
   const active = chats.find((chat) => chat.id === chatId)
   const activeModel = models.find((model) => model.id === modelId) ?? models[0]
+  const providers = groupLLMProfiles(models)
+  const activeProvider = providers.find((provider) => provider.models.some((model) => model.id === activeModel?.id)) ?? providers[0]
+  const providerModels = activeProvider?.models ?? []
   const canSend = Boolean(draft.trim() || attachments.length) && !pending
 
   useEffect(() => {
@@ -554,22 +557,33 @@ export function ChatPanel({
           />
           <div className="flex min-w-0 items-center gap-1.5 px-2.5 pb-2.5">
             <div className="flex min-w-0 flex-1 items-center gap-0.5">
-              {onModel && activeModel ? (
-                <Select value={activeModel.id} onValueChange={onModel}>
+              {onModel && activeModel && activeProvider ? (
+                <>
+                <Select
+                  value={activeProvider.id}
+                  onValueChange={(providerID) => {
+                    const provider = providers.find((item) => item.id === providerID)
+                    // A provider is only a UI grouping; settings are keyed by
+                    // the concrete profile/model id. Ignore malformed entries
+                    // so we never issue PUT /v1/settings with an empty id.
+                    const nextModel = provider?.models.find((model) => model.id?.trim())
+                    if (nextModel?.id?.trim()) onModel(nextModel.id)
+                  }}
+                >
                   <SelectTrigger
-                    className="!h-7 !w-auto !min-w-[88px] !max-w-[148px] !border-transparent !bg-transparent px-1.5 text-[11px] text-mute shadow-none hover:bg-wash hover:text-cream focus-visible:bg-wash"
-                    aria-label="Language model"
-                    title={`Language model: ${profileLabel(activeModel)}`}
+                    className="!h-7 !w-auto !min-w-[72px] !max-w-[112px] !border-transparent !bg-transparent px-1.5 text-[11px] text-mute shadow-none hover:bg-wash hover:text-cream focus-visible:bg-wash"
+                    aria-label="AI provider"
+                    title={`AI provider: ${activeProvider.label}`}
                   >
-                    <span className="truncate">{profileLabel(activeModel)}</span>
+                    <span className="truncate">{activeProvider.label}</span>
                   </SelectTrigger>
                   <SelectContent>
-                    {models.map((model) => {
-                      const host = profileHost(model.base_url)
+                    {providers.map((provider) => {
+                      const host = profileHost(provider.baseURL)
                       return (
-                        <SelectItem key={model.id} value={model.id} textValue={profileLabel(model)}>
+                        <SelectItem key={provider.id} value={provider.id} textValue={provider.label}>
                           <span className="flex min-w-0 flex-col">
-                            <span className="truncate">{profileLabel(model)}</span>
+                            <span className="truncate">{provider.label}</span>
                             {host && <span className="truncate text-[10px] text-dim">{host}</span>}
                           </span>
                         </SelectItem>
@@ -577,6 +591,29 @@ export function ChatPanel({
                     })}
                   </SelectContent>
                 </Select>
+                <span className="px-0.5 text-[10px] text-dim/50" aria-hidden>/</span>
+                <Select
+                  value={activeModel.id}
+                  onValueChange={(id) => {
+                    if (typeof id === 'string' && id.trim()) onModel(id)
+                  }}
+                >
+                  <SelectTrigger
+                    className="!h-7 !w-auto !min-w-[72px] !max-w-[112px] !border-transparent !bg-transparent px-1.5 text-[11px] text-mute shadow-none hover:bg-wash hover:text-cream focus-visible:bg-wash"
+                    aria-label="Language model"
+                    title={`Language model: ${activeModel.model}`}
+                  >
+                    <span className="truncate">{activeModel.model}</span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {providerModels.map((model) => (
+                      <SelectItem key={model.id} value={model.id} textValue={model.model}>
+                        <span className="truncate">{model.model}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                </>
               ) : (
                 <span
                   className="px-1.5 text-[11px] text-dim"
@@ -639,7 +676,7 @@ function ThinkingEffortSelect({
         <span className="truncate">{capitalize(value)}</span>
       </SelectTrigger>
       <SelectContent>
-        {(['low', 'medium', 'high'] as ThinkingEffort[]).map((effort) => (
+        {(['none', 'low', 'medium', 'high'] as ThinkingEffort[]).map((effort) => (
           <SelectItem key={effort} value={effort} textValue={capitalize(effort)}>
             {capitalize(effort)}
           </SelectItem>

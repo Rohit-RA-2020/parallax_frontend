@@ -48,7 +48,7 @@ for a deployment without changing the editor code.
    Uploaded video is split into visual shots and described the same way.
    The bin search bar matches filenames and the project index (stills, shots, speech).
    If the backend `.env` lists more than one model, the chat composer can
-   switch among them and set the Director's thinking effort to Low, Medium,
+   switch among them and set the Director's thinking effort to None, Low, Medium,
    or High. Image generation needs `GEMINI_API_KEY` on the backend; generated
    stills appear in the bin and can be placed on the timeline.
 5. Hover a bin item to delete it from the project. Timeline clips that used it
