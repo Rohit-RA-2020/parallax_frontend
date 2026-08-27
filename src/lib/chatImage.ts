@@ -25,12 +25,14 @@ export async function filesToChatImages(files: File[]) {
 
 export async function encodeChatImage(file: File): Promise<ChatImagePayload> {
   const source = await readDataURL(file)
-  const resized = await resizeDataURL(source, file.type)
+  // Keep the payload lossless. The preview may be resized for the composer,
+  // but generation and vision models must receive the original pixels.
+  const preview = await resizeDataURL(source, file.type)
   return {
     name: file.name || 'image.jpg',
-    mime: resized.mime,
-    data: resized.data,
-    preview: resized.data,
+    mime: file.type || preview.mime,
+    data: source,
+    preview: preview.data,
   }
 }
 
