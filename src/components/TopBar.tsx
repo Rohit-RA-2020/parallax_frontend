@@ -1,4 +1,4 @@
-import { Download, Plus, Redo2, Share, Trash2, Undo2, Upload } from 'lucide-react'
+import { Download, LogOut, Plus, Redo2, Share, Trash2, Undo2, Upload } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { PROJECT_FPS, PROJECT_RES } from '../data/project'
 import type { ProjectRecord } from '../lib/api'
@@ -6,6 +6,7 @@ import { softSpring } from '../lib/motion'
 import { ThemeToggle } from './ThemeToggle'
 import { IconButton, Logo, Pill } from './ui'
 import { Select, SelectContent, SelectItem, SelectTrigger } from './Select'
+import { useAuth } from '../auth/AuthProvider'
 
 type Props = {
   onExport: () => void
@@ -45,6 +46,7 @@ export function TopBar({
   onRedo,
 }: Props) {
   const reduce = useReducedMotion()
+  const { signOut, user } = useAuth()
   return (
     <header className="chrome flex h-12 shrink-0 items-center justify-between border-b border-line bg-panel px-3">
       <div className="flex min-w-0 items-center gap-5">
@@ -114,6 +116,9 @@ export function TopBar({
           </span>
         </motion.button>
         <ThemeToggle />
+        <IconButton label={`Sign out${user?.email ? ` ${user.email}` : ''}`} onClick={() => void signOut()}>
+          <LogOut size={14} />
+        </IconButton>
         <div className="mr-1 hidden items-center gap-2 text-[11px] text-mute md:flex">
           <span className="font-mono">{PROJECT_FPS} fps</span>
           <span className="text-dim">/</span>

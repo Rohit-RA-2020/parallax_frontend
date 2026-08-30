@@ -2,6 +2,8 @@ import { Component, StrictMode, type ErrorInfo, type PropsWithChildren } from 'r
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { AuthProvider } from './auth/AuthProvider.tsx'
+import { AuthGate } from './auth/AuthGate.tsx'
 
 type ErrorBoundaryState = { error: Error | null }
 
@@ -39,8 +41,10 @@ class AppErrorBoundary extends Component<PropsWithChildren, ErrorBoundaryState> 
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppErrorBoundary>
-      <App />
-    </AppErrorBoundary>
+    <AuthProvider>
+      <AppErrorBoundary>
+        <AuthGate><App /></AuthGate>
+      </AppErrorBoundary>
+    </AuthProvider>
   </StrictMode>,
 )

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.7",
+    "@supabase/supabase-js": "^2.112.4",
     "dompurify": "^3.4.14",
     "framer-motion": "^13.1.0",
     "lucide-react": "^1.31.0",

@@ -1,7 +1,8 @@
 import type { TimelineDocument } from './timeline'
 import { Upload } from 'tus-js-client'
+import { supabase, supabaseConfigured } from './supabase'
 
-export const API_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8080').replace(/\/$/, '')
+export const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
 
 export type ProjectRecord = {
   id: string
@@ -83,6 +84,7 @@ export type MediaPreviewStatus = {
 
 export type ProjectMedia = {
   id: string
+  version_id?: string
   name: string
   path: string
   kind: 'video' | 'audio' | 'image' | 'subtitle' | 'file'
@@ -150,10 +152,30 @@ export type LLMSettings = {
   model: string
   api_key_set: boolean
   profiles: LLMProfile[]
+	thinking_effort?: ThinkingEffort
+}
+
+async function accessToken(refresh = false) {
+  const { data, error } = refresh ? await supabase.auth.refreshSession() : await supabase.auth.getSession()
+  if (error) throw error
+  if (!data.session) throw new Error('Your session has expired. Sign in again.')
+  return data.session.access_token
+}
+
+export async function authenticatedFetch(input: string, init: RequestInit = {}) {
+	if (!supabaseConfigured) return fetch(input, init)
+  const send = async (refresh: boolean) => {
+    const headers = new Headers(init.headers)
+    headers.set('Authorization', `Bearer ${await accessToken(refresh)}`)
+    return fetch(input, { ...init, headers, credentials: 'include' })
+  }
+  let response = await send(false)
+  if (response.status === 401) response = await send(true)
+  return response
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(API_BASE + path, init)
+  const response = await authenticatedFetch(API_BASE + path, init)
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { error?: string }
     throw new Error(body.error || `Request failed (${response.status})`)
@@ -175,7 +197,7 @@ export function createProject(name: string) {
 }
 
 export async function deleteProject(projectID: string) {
-  const response = await fetch(`${API_BASE}/v1/projects/${projectID}`, { method: 'DELETE' })
+  const response = await authenticatedFetch(`${API_BASE}/v1/projects/${projectID}`, { method: 'DELETE' })
   if (!response.ok && response.status !== 204) {
     const body = await response.json().catch(() => ({})) as { error?: string }
     throw new Error(body.error || `Request failed (${response.status})`)
@@ -326,6 +348,7 @@ export function uploadProjectMedia(
 			metadata: { project_id: projectID, filename: file.name, filetype: file.type || 'application/octet-stream' },
 			fingerprint: async () => ['parallax', projectID, file.name, file.size, file.type, file.lastModified].join('-'),
 			removeFingerprintOnSuccess: true,
+			async onBeforeRequest(request) { if (supabaseConfigured) request.setHeader('Authorization', `Bearer ${await accessToken(false)}`) },
 			onProgress(bytesUploaded) {
 				sent[index] = bytesUploaded
 				notify(index)
@@ -457,7 +480,7 @@ export function exportProjectMedia(projectID: string, body: ExportRequest) {
 }
 
 export async function downloadProjectFile(contentURL: string, filename: string) {
-  const response = await fetch(API_BASE + contentURL)
+  const response = await authenticatedFetch(API_BASE + contentURL)
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { error?: string }
     throw new Error(body.error || `Download failed (${response.status})`)
@@ -475,7 +498,7 @@ export async function downloadProjectFile(contentURL: string, filename: string) 
 
 export async function deleteProjectMedia(projectID: string, path: string) {
   const encoded = path.split('/').filter(Boolean).map(encodeURIComponent).join('/')
-  const response = await fetch(`${API_BASE}/v1/projects/${projectID}/files/${encoded}`, { method: 'DELETE' })
+  const response = await authenticatedFetch(`${API_BASE}/v1/projects/${projectID}/files/${encoded}`, { method: 'DELETE' })
   if (!response.ok && response.status !== 204) {
     const body = await response.json().catch(() => ({})) as { error?: string }
     throw new Error(body.error || `Request failed (${response.status})`)
@@ -509,7 +532,7 @@ export function renameProjectChat(projectID: string, chatID: string, title: stri
 }
 
 export async function deleteProjectChat(projectID: string, chatID: string) {
-  const response = await fetch(`${API_BASE}/v1/projects/${projectID}/chats/${chatID}`, { method: 'DELETE' })
+  const response = await authenticatedFetch(`${API_BASE}/v1/projects/${projectID}/chats/${chatID}`, { method: 'DELETE' })
   if (!response.ok && response.status !== 204) {
     const body = await response.json().catch(() => ({})) as { error?: string }
     throw new Error(body.error || `Request failed (${response.status})`)
@@ -646,7 +669,7 @@ export function getSettings() {
   return request<LLMSettings>('/v1/settings')
 }
 
-export function putSettings(body: { active_id: string }) {
+export function putSettings(body: { active_id: string; thinking_effort?: ThinkingEffort }) {
   return request<LLMSettings>('/v1/settings', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -671,6 +694,7 @@ export function normalizeSettings(raw: Partial<LLMSettings> | null | undefined):
       model: model || profiles[0].model,
       api_key_set: apiKeySet || profiles[0].api_key_set,
       profiles,
+		thinking_effort: normalizeThinkingEffort(raw?.thinking_effort),
     }
   }
   const fallback: LLMProfile = {
@@ -685,6 +709,7 @@ export function normalizeSettings(raw: Partial<LLMSettings> | null | undefined):
     model: fallback.model,
     api_key_set: fallback.api_key_set,
     profiles: fallback.model || fallback.base_url ? [fallback] : [],
+	thinking_effort: normalizeThinkingEffort(raw?.thinking_effort),
   }
 }
 
@@ -717,7 +742,7 @@ export async function streamAgent(
   },
   onEvent: (event: AgentEvent) => void,
 ) {
-  const response = await fetch(API_BASE + '/v1/agent/chat', {
+  const response = await authenticatedFetch(API_BASE + '/v1/agent/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     signal: input.signal,

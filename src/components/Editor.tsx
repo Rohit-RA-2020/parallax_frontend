@@ -533,7 +533,11 @@ export function Editor() {
     let live = true
     getSettings()
       .then((raw) => {
-        if (live) setSettings(normalizeSettings(raw))
+        if (live) {
+			const normalized = normalizeSettings(raw)
+			setSettings(normalized)
+			setThinkingEffort(normalizeThinkingEffort(normalized.thinking_effort))
+		}
       })
       .catch(() => {
         if (live) setSettings(null)
@@ -1514,7 +1518,7 @@ export function Editor() {
     const previous = settingsRef.current
     setSettings((current) => current ? { ...current, active_id: nextID } : current)
     try {
-      setSettings(normalizeSettings(await putSettings({ active_id: nextID })))
+      setSettings(normalizeSettings(await putSettings({ active_id: nextID, thinking_effort: thinkingEffort })))
     } catch (error) {
       setSettings(previous)
       setToast(errorMessage(error))
@@ -1524,6 +1528,8 @@ export function Editor() {
   function selectThinkingEffort(value: ThinkingEffort) {
     setThinkingEffort(value)
     writePref('parallax.thinkingEffort', value)
+	const activeID = settingsRef.current?.active_id
+	if (activeID) void putSettings({ active_id: activeID, thinking_effort: value }).then((raw) => setSettings(normalizeSettings(raw))).catch((error) => setToast(errorMessage(error)))
   }
 
   return (
@@ -1999,6 +2005,7 @@ function toMediaAsset(item: ProjectMedia): MediaAsset | null {
   const measured = item.duration && item.duration > 0 ? item.duration : 0
   return {
     id: `project-${item.id}`,
+	assetId: item.id,
     name: item.name,
     kind,
     duration: measured || (item.kind === 'image' ? 5 : 0),

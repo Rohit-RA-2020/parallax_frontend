@@ -5,7 +5,8 @@ export type TrackKind = 'video' | 'audio' | 'title' | 'caption'
 export type MediaKind = 'video' | 'audio' | 'title' | 'caption'
 
 export type Clip = {
-  id: string
+	id: string
+	assetId?: string
   name: string
   track: string
   kind: TrackKind
@@ -94,7 +95,8 @@ export type MediaPreviewTimings = {
 }
 
 export type MediaAsset = {
-  id: string
+	id: string
+	assetId?: string
   name: string
   kind: MediaKind
   duration: number

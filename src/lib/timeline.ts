@@ -1,11 +1,12 @@
 import type { Clip, MediaAsset, TimelineColor, TimelineKeyframe, TimelineTransform, TrackKind } from '../types'
 import { PROJECT_FPS } from '../data/project'
 
-export const TIMELINE_SCHEMA = 2
+export const TIMELINE_SCHEMA = 3
 export const MIN_CLIP_FRAMES = 1
 
 export type TimelineClipRecord = {
   id: string
+  asset_id?: string
   name: string
   track: string
   kind: TrackKind
@@ -149,6 +150,7 @@ export function hydrateClip(clip: Clip, assets: MediaAsset[]): Clip {
   let next: Clip = {
     ...clip,
     name: clip.name || asset.name,
+	assetId: asset.assetId ?? clip.assetId,
     src: asset.src,
     thumb: asset.thumb ?? clip.thumb,
     mediaPath: asset.path ?? clip.mediaPath,
@@ -203,6 +205,7 @@ function clipToRecord(clip: Clip, fps: number): TimelineClipRecord {
   if (clip.sourceDuration && clip.sourceDuration > 0) {
     record.source_duration_frames = toFrames(clip.sourceDuration, fps)
   }
+	if (clip.assetId) record.asset_id = clip.assetId
   if (clip.mediaPath) record.media_path = clip.mediaPath
   if (clip.mediaType) record.media_type = clip.mediaType
   if (clip.waveSeed) record.wave_seed = clip.waveSeed
@@ -221,6 +224,7 @@ function clipToRecord(clip: Clip, fps: number): TimelineClipRecord {
 function clipFromRecord(record: TimelineClipRecord, fps: number): Clip {
   return {
     id: record.id,
+	assetId: record.asset_id,
     name: record.name || 'Clip',
     track: record.track,
     kind: record.kind,
@@ -253,7 +257,11 @@ function transformFromRecord(value?: SnakeTransform): TimelineTransform | undefi
   return value ? { x:value.x, y:value.y, anchorX:value.anchor_x, anchorY:value.anchor_y, scaleX:value.scale_x, scaleY:value.scale_y, rotation:value.rotation, opacity:value.opacity, cropTop:value.crop_top, cropRight:value.crop_right, cropBottom:value.crop_bottom, cropLeft:value.crop_left } : undefined
 }
 
-export function findClipAsset(clip: Pick<Clip, 'mediaPath' | 'src'>, assets: MediaAsset[]) {
+export function findClipAsset(clip: Pick<Clip, 'assetId' | 'mediaPath' | 'src'>, assets: MediaAsset[]) {
+	if (clip.assetId) {
+		const byID = assets.find((asset) => asset.assetId === clip.assetId)
+		if (byID) return byID
+	}
   if (clip.mediaPath) {
     const want = normalizeMediaPath(clip.mediaPath)
     const byPath = assets.find((asset) => {

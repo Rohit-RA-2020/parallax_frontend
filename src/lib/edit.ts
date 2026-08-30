@@ -67,6 +67,7 @@ export function clipFromAsset(asset: MediaAsset, start: number, track?: string):
   const known = asset.duration > 0
   return {
     id: newClipId(),
+	assetId: asset.assetId,
     name: kind === 'title' ? 'SALT ROAD' : asset.name,
     track: track && trackAccepts(track, kind) ? track : defaultTrack(kind),
     kind,

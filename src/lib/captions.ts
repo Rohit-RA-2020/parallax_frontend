@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { CaptionCue } from '../types'
-import { API_BASE } from './api'
+import { API_BASE, authenticatedFetch } from './api'
 
 export const CAPTION_CANVAS_HEIGHT = 1080
 export const DEFAULT_CAPTION_FONT = 32
@@ -81,7 +81,7 @@ export function useCaptionCues(projectId: string, path: string | undefined, revi
       return
     }
     let cancelled = false
-    const pending = inflight.get(key) ?? fetch(projectFileURL(projectId, path))
+    const pending = inflight.get(key) ?? authenticatedFetch(projectFileURL(projectId, path))
       .then((response) => (response.ok ? response.text() : ''))
       .then((body) => {
         const next = body ? parseSRT(body) : []
