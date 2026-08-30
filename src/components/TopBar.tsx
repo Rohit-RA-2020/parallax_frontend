@@ -1,4 +1,4 @@
-import { Download, LogOut, Plus, Redo2, Share, Trash2, Undo2, Upload } from 'lucide-react'
+import { Download, FolderOpen, LogOut, Plus, Redo2, Share, Trash2, Undo2, Upload } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { PROJECT_FPS, PROJECT_RES } from '../data/project'
 import type { ProjectRecord } from '../lib/api'
@@ -25,6 +25,7 @@ type Props = {
   canRedo?: boolean
   onUndo?: () => void
   onRedo?: () => void
+  onProjects?: () => void
 }
 
 export function TopBar({
@@ -44,6 +45,7 @@ export function TopBar({
   canRedo,
   onUndo,
   onRedo,
+  onProjects,
 }: Props) {
   const reduce = useReducedMotion()
   const { signOut, user } = useAuth()
@@ -94,6 +96,19 @@ export function TopBar({
       </div>
 
       <div className="flex items-center gap-2">
+        {onProjects && (
+          <motion.button
+            type="button"
+            onClick={onProjects}
+            whileHover={reduce ? undefined : { y: -1 }}
+            whileTap={reduce ? undefined : { scale: 0.97 }}
+            transition={softSpring}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-2.5 text-[12px] text-mute transition-colors hover:border-line-strong hover:text-cream"
+          >
+            <FolderOpen size={14} />
+            <span>Projects</span>
+          </motion.button>
+        )}
         <motion.button
           type="button"
           onClick={onUpload}
@@ -116,9 +131,19 @@ export function TopBar({
           </span>
         </motion.button>
         <ThemeToggle />
-        <IconButton label={`Sign out${user?.email ? ` ${user.email}` : ''}`} onClick={() => void signOut()}>
+        <motion.button
+          type="button"
+          title={`Sign out${user?.email ? ` ${user.email}` : ''}`}
+          aria-label={`Sign out${user?.email ? ` ${user.email}` : ''}`}
+          onClick={() => void signOut()}
+          whileHover={reduce ? undefined : { y: -1 }}
+          whileTap={reduce ? undefined : { scale: 0.97 }}
+          transition={softSpring}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line px-2.5 text-[12px] text-mute transition-colors hover:border-line-strong hover:text-cream"
+        >
           <LogOut size={14} />
-        </IconButton>
+          <span>Sign out</span>
+        </motion.button>
         <div className="mr-1 hidden items-center gap-2 text-[11px] text-mute md:flex">
           <span className="font-mono">{PROJECT_FPS} fps</span>
           <span className="text-dim">/</span>

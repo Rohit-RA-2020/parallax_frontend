@@ -99,7 +99,12 @@ const MEDIA_GENERATION_TOOLS = new Set([
   'generate_sound_effect',
 ])
 
-export function Editor() {
+type EditorProps = {
+  initialProjectID: string
+  onBackToProjects: () => void
+}
+
+export function Editor({ initialProjectID, onBackToProjects }: EditorProps) {
   const reduce = useReducedMotion()
   const [tool, setTool] = useState<ToolId>('media')
   const [panelOpen, setPanelOpen] = useState(true)
@@ -498,11 +503,12 @@ export function Editor() {
       .then(async (items) => {
         if (!live) return
         setProjects(items)
-        if (!items[0]) return
-        await bootProject(items[0].id)
+        const initial = items.find((item) => item.id === initialProjectID) ?? items[0]
+        if (!initial) return
+        await bootProject(initial.id)
         if (!live) return
         try {
-          await loadChats(items[0].id)
+          await loadChats(initial.id)
         } catch (error) {
           if (live) setToast(errorMessage(error))
         }
@@ -511,7 +517,7 @@ export function Editor() {
         if (live) setToast(`Backend unavailable: ${errorMessage(error)}`)
       })
     return () => { live = false }
-  }, [bootProject, loadChats])
+  }, [bootProject, initialProjectID, loadChats])
 
   useEffect(() => {
     if (!projectId || !assets.some((asset) => indexBusy(asset.indexState) || previewBusy(asset))) return
@@ -982,6 +988,13 @@ export function Editor() {
     } catch (error) {
       setToast(errorMessage(error))
     }
+  }
+
+  async function returnToProjects() {
+    window.clearTimeout(saveTimerRef.current)
+    await flushTimeline()
+    abandonStream()
+    onBackToProjects()
   }
 
   async function openChat(id: string, chatID: string) {
@@ -1559,6 +1572,7 @@ export function Editor() {
         canRedo={!!history?.redo_candidates?.length && !pending}
         onUndo={() => void undoLast()}
         onRedo={() => void redoLast()}
+        onProjects={() => void returnToProjects()}
         exporting={exporting}
         onExport={() => {
           if (!projectId) {
