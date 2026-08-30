@@ -1311,6 +1311,13 @@ export function Editor({ initialProjectID, onBackToProjects }: EditorProps) {
           setSessionId(event.data.session_id)
           writeActiveChat(projectId, event.data.session_id)
         }
+        if (event.type === 'chat_title' && typeof event.data.session_id === 'string' && typeof event.data.title === 'string') {
+          const titledSessionID = event.data.session_id
+          const generatedTitle = event.data.title
+          setChats((current) => current.map((chat) => (
+            chat.id === titledSessionID ? { ...chat, title: generatedTitle } : chat
+          )))
+        }
         if (event.type === 'text' && typeof event.data.delta === 'string') {
           // Preserve leading spaces between streamed tokens; whole-message
           // cleanup may trim once, but trimming every delta joins words.
