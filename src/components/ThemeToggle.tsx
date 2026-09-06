@@ -18,7 +18,7 @@ export function ThemeToggle() {
     <div
       role="group"
       aria-label="Color theme"
-      className="flex h-8 items-center rounded-md border border-line bg-well p-0.5"
+      className="flex h-9 items-center rounded-md border border-line bg-well p-0.5"
     >
       {options.map(({ id, label, icon: Icon }) => {
         const active = theme === id
