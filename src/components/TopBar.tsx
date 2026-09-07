@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ButtonHTMLAttributes } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Download, FolderOpen, LogOut, Moon, Plus, Redo2, Share, Sun, Trash2, Undo2, Upload } from 'lucide-react'
-import { motion, useReducedMotion } from 'framer-motion'
+import { motion, useReducedMotion, type HTMLMotionProps } from 'framer-motion'
 import { PROJECT_FPS, PROJECT_RES } from '../data/project'
 import type { ProjectRecord } from '../lib/api'
 import { softSpring } from '../lib/motion'
@@ -34,7 +34,7 @@ function ActionButton({
   children,
   className,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
+}: HTMLMotionProps<'button'>) {
   const reduce = useReducedMotion()
   return (
     <motion.button
