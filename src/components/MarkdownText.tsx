@@ -1,6 +1,8 @@
 import DOMPurify from 'dompurify'
 import { marked, Renderer } from 'marked'
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+
+import { STREAM_FADE_MS, updateStreamFade, type StreamFadeState } from '../lib/streamFade'
 
 let mermaidSequence = 0
 let mermaidReady = false
@@ -11,6 +13,52 @@ let mermaidModule: Promise<typeof import('mermaid').default> | null = null
 export const MarkdownText = memo(function MarkdownText({ children, fadeTail = 0 }: { children: string; fadeTail?: number }) {
   const host = useRef<HTMLDivElement>(null)
   const html = useMemo(() => renderMarkdown(children), [children])
+
+  const fadeState = useRef<StreamFadeState>({ text: '', births: [] })
+
+  useLayoutEffect(() => {
+    const root = host.current
+    if (!root || fadeTail <= 0 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      fadeState.current = { text: '', births: [] }
+      return
+    }
+    for (const span of root.querySelectorAll('.stream-chunk-fade')) span.replaceWith(...span.childNodes)
+    const document = root.ownerDocument
+    const walker = document.createTreeWalker(root, 4)
+    const nodes: Text[] = []
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text
+      if (!node.parentElement?.closest('svg, .markdown-mermaid, .markdown-mermaid-placeholder')) nodes.push(node)
+    }
+    const now = performance.now()
+    const state = updateStreamFade(fadeState.current, nodes.map((node) => node.data).join(''), now)
+    fadeState.current = state
+    let offset = 0
+    for (const node of nodes) {
+      const fragment = document.createDocumentFragment()
+      let start = 0
+      while (start < node.length) {
+        const birth = state.births[offset + start]
+        let end = start + 1
+        while (end < node.length && state.births[offset + end] === birth) end++
+        const text = node.data.slice(start, end)
+        const age = now - birth
+        if (age < STREAM_FADE_MS) {
+          const span = document.createElement('span')
+          span.className = 'stream-chunk-fade'
+          span.style.animationDuration = `${STREAM_FADE_MS}ms`
+          span.style.animationDelay = `${-age}ms`
+          span.textContent = text
+          fragment.append(span)
+        } else {
+          fragment.append(document.createTextNode(text))
+        }
+        start = end
+      }
+      offset += node.length
+      node.replaceWith(fragment)
+    }
+  }, [html, fadeTail])
 
   useEffect(() => {
     const root = host.current

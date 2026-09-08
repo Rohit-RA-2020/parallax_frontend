@@ -91,6 +91,9 @@ import { createStreamTextQueue, type StreamTextQueue } from '../lib/streamText'
 import { stripThoughtMarkup, stripThoughtTags } from '../lib/thought'
 
 const MEDIA_GENERATION_TOOLS = new Set([
+  'blender_render',
+  'import_gif',
+  'run_ffmpeg',
   'download_youtube_video',
   'generate_image',
   'generate_video',
@@ -284,11 +287,13 @@ export function Editor({ initialProjectID, onBackToProjects }: EditorProps) {
     latestStart: number
   } | null>(null)
 
+  const mediaRefreshSequence = useRef(0)
   const refreshMedia = useCallback(async (id: string, opts?: { silent?: boolean }) => {
+    const sequence = ++mediaRefreshSequence.current
     if (!opts?.silent) setMediaLoading(true)
     try {
       const items = await listProjectMedia(id)
-      if (projectIdRef.current !== id) return
+      if (projectIdRef.current !== id || sequence !== mediaRefreshSequence.current) return
       const previous = new Map(
         assetsRef.current.filter((asset) => asset.path).map((asset) => [asset.path as string, asset]),
       )

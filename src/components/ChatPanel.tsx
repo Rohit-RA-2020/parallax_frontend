@@ -828,7 +828,7 @@ function Message({
             </div>
           </div>
         ) : reply && !(!mine && message.parts?.length) ? (
-          <div className={cn(!mine && !reduce && 'chat-message-enter', streaming && !reduce && 'stream-text-shimmer')}>
+          <div className={cn(!mine && !reduce && 'chat-message-enter')}>
             {mine ? reply : <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{reply}</MarkdownText>}
           </div>
         ) : null}
@@ -850,7 +850,7 @@ function Message({
   )
 }
 
-function TranscriptParts({
+export function TranscriptParts({
   parts,
   pending,
   startedAt,
@@ -866,7 +866,6 @@ function TranscriptParts({
   streaming: boolean
 }) {
   const [elapsedMs, setElapsedMs] = useState(0)
-  const [finalPartId, setFinalPartId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!startedAt) return
@@ -879,48 +878,8 @@ function TranscriptParts({
 
   const visibleParts = parts.filter(isVisibleTranscriptPart)
   const lastActivityIndex = visibleParts.findLastIndex((part) => part.kind === 'activity')
-  const latestPart = parts[parts.length - 1]
-  const responseCandidate = pending && latestPart?.kind === 'text' && latestPart.text.trim()
-    ? latestPart
-    : undefined
-  const responseCandidateId = responseCandidate?.id
-
-  useEffect(() => {
-    if (!pending || !responseCandidateId) {
-      setFinalPartId(null)
-      return
-    }
-    if (finalPartId === responseCandidateId) return
-    const timer = window.setTimeout(() => setFinalPartId(responseCandidateId), 500)
-    return () => window.clearTimeout(timer)
-  }, [finalPartId, pending, responseCandidateId])
 
   if (pending) {
-    const finalPartIndex = finalPartId
-      ? visibleParts.findIndex((part) => part.id === finalPartId)
-      : -1
-    if (finalPartIndex >= 0) {
-      const finalPart = visibleParts[finalPartIndex]
-      if (finalPart.kind === 'text') {
-        const rawFinalIndex = parts.findIndex((part) => part.id === finalPart.id)
-        const intermediateParts = visibleParts.slice(0, finalPartIndex)
-        return (
-          <div className="mt-1 w-full max-w-full space-y-2">
-            {intermediateParts.length > 0 && (
-              <LiveTranscript
-                parts={rawFinalIndex >= 0 ? parts.slice(0, rawFinalIndex) : []}
-                visibleParts={intermediateParts}
-                elapsedMs={elapsedMs}
-                reduce={reduce}
-              />
-            )}
-            <div className="text-[13px] leading-relaxed text-mute">
-              <MarkdownText>{finalPart.text}</MarkdownText>
-            </div>
-          </div>
-        )
-      }
-    }
     return (
       <LiveTranscript
         parts={parts}
@@ -950,7 +909,7 @@ function TranscriptParts({
     <div className="mt-1 w-full max-w-full space-y-2">
       {visibleParts.map((part) => part.kind === 'text' ? (
         part.text ? (
-          <div key={part.id} className={cn('text-[13px] leading-relaxed text-mute', streaming && !reduce && 'stream-text-shimmer')}>
+          <div key={part.id} className="text-[13px] leading-relaxed text-mute">
             <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{part.text}</MarkdownText>
           </div>
         ) : null
@@ -972,112 +931,27 @@ function LiveTranscript({
   elapsedMs: number
   reduce: boolean
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const [displayIndex, setDisplayIndex] = useState(0)
-  const displayIndexRef = useRef(0)
-  const transitionTimer = useRef<number | null>(null)
   const latestPart = parts[parts.length - 1]
-  const latestIsHidden = Boolean(latestPart && !isVisibleTranscriptPart(latestPart))
-  const liveEntries = visibleParts.map((part) => ({
-    key: `${part.kind}-${part.id}`,
-    label: livePartLabel(part),
-    tool: part.kind === 'activity' && part.activity.kind === 'tool',
-  }))
-  if (!liveEntries.length || latestIsHidden) {
-    liveEntries.push({ key: 'thinking', label: 'Thinking', tool: false })
-  }
-  const maxDisplayIndex = liveEntries.length - 1
-  const currentEntry = liveEntries[Math.min(displayIndex, maxDisplayIndex)] ?? liveEntries[0]
-  const canExpand = visibleParts.length > 0
-  const currentTool = currentEntry.tool
-  const activeDownload = visibleParts.findLast((part): part is Extract<ChatPart, { kind: 'activity' }> => (
-    part.kind === 'activity'
-      && part.activity.name === 'download_youtube_video'
-      && part.activity.status === 'active'
-  ))
-
-  useEffect(() => {
-    if (displayIndexRef.current > maxDisplayIndex) {
-      displayIndexRef.current = maxDisplayIndex
-      setDisplayIndex(maxDisplayIndex)
-      if (transitionTimer.current != null) {
-        window.clearTimeout(transitionTimer.current)
-        transitionTimer.current = null
-      }
-      return
-    }
-    if (displayIndexRef.current >= maxDisplayIndex || transitionTimer.current != null) return
-    transitionTimer.current = window.setTimeout(() => {
-      transitionTimer.current = null
-      setDisplayIndex((current) => {
-        const next = Math.min(current + 1, maxDisplayIndex)
-        displayIndexRef.current = next
-        return next
-      })
-    }, 520)
-  }, [maxDisplayIndex, displayIndex])
-
-  useEffect(() => () => {
-    if (transitionTimer.current != null) window.clearTimeout(transitionTimer.current)
-  }, [])
-
+  const waiting = !latestPart || !isVisibleTranscriptPart(latestPart)
+  const hasTools = visibleParts.some((part) => part.kind === 'activity' && part.activity.kind === 'tool')
   return (
     <div className="mt-1 w-full max-w-full">
-      <button
-        type="button"
-        onClick={() => canExpand && setExpanded((value) => !value)}
-        disabled={!canExpand}
-        aria-expanded={expanded}
-        aria-label={expanded ? 'Hide activity timeline' : 'Show activity timeline'}
-        className={cn(
-          'flex h-6 w-full min-w-0 items-center gap-1.5 text-left transition-colors',
-          canExpand ? 'cursor-pointer hover:text-cream' : 'cursor-default',
-        )}
-      >
-        <LoaderCircle size={10} className={cn('shrink-0', currentTool ? 'text-dim' : 'text-live', !reduce && 'animate-spin')} />
-        <AnimatePresence initial={false} mode="wait">
-          <motion.span
-            key={currentEntry.key}
-            initial={reduce ? false : { opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={reduce ? undefined : { opacity: 0, y: -4 }}
-            transition={{ duration: reduce ? 0 : 0.16, ease: 'easeOut' }}
-            className={cn(
-              'min-w-0 flex-1 truncate text-[11px] leading-5',
-              currentTool ? 'trace-tool' : 'text-mute',
-              !currentTool && !reduce && 'stream-text-shimmer',
-            )}
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            {currentEntry.label}
-          </motion.span>
-        </AnimatePresence>
-        <span className="shrink-0 font-mono text-[8px] text-dim/70">{formatWorkDuration(elapsedMs)}</span>
-        {canExpand && <ChevronRight size={11} className={cn('shrink-0 text-dim transition-transform', expanded && 'rotate-90')} />}
-      </button>
-      {activeDownload && <YouTubeDownloadProgress item={activeDownload.activity} reduce={reduce} />}
-      <AnimatePresence initial={false}>
-        {expanded && canExpand && (
-          <motion.div
-            initial={reduce ? false : { opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={reduce ? undefined : { opacity: 0, height: 0 }}
-            className="overflow-hidden"
-          >
-            <ActivityTimeline parts={visibleParts} reduce={reduce} />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <div role="status" className="mb-3 flex items-center gap-2 text-[11px] text-dim">
+        <LoaderCircle size={12} className={cn(!reduce && 'animate-spin')} />
+        <span>{waiting ? 'Thinking' : 'Working'}</span>
+        <span className="font-mono text-[9px]">{formatWorkDuration(elapsedMs)}</span>
+      </div>
+      {hasTools ? (
+        <ActivityTimeline parts={visibleParts} reduce={reduce} streaming />
+      ) : (
+        <div className="space-y-2 text-[13px] leading-relaxed text-mute">
+          {visibleParts.map((part) => part.kind === 'text' && part.text ? (
+            <MarkdownText key={part.id} fadeTail={reduce ? 0 : 120}>{part.text}</MarkdownText>
+          ) : null)}
+        </div>
+      )}
     </div>
   )
-}
-
-function livePartLabel(part: ChatPart) {
-  if (part.kind === 'activity') return part.activity.title
-  const text = stripThoughtMarkup(part.text).replace(/\s+/g, ' ').trim()
-  if (!text) return 'Thinking'
-  return text.length > 140 ? `${text.slice(0, 140)}…` : text
 }
 
 function ActivitySummary({
@@ -1121,14 +995,14 @@ function ActivitySummary({
   )
 }
 
-function ActivityTimeline({ parts, reduce }: { parts: ChatPart[]; reduce: boolean }) {
+function ActivityTimeline({ parts, reduce, streaming = false }: { parts: ChatPart[]; reduce: boolean; streaming?: boolean }) {
   return (
     <div className="activity-timeline relative ml-1 mt-3 pl-6">
       <span aria-hidden className="activity-timeline-rail" />
       <div className="space-y-3.5">
         {parts.map((part) => {
           const content = part.kind === 'text'
-            ? (part.text ? <div className="activity-timeline-text"><MarkdownText>{part.text}</MarkdownText></div> : null)
+            ? (part.text ? <div className="activity-timeline-text"><MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{part.text}</MarkdownText></div> : null)
             : <InlineActivity item={part.activity} reduce={reduce} />
           if (!content) return null
           const active = part.kind === 'activity' && part.activity.status === 'active'
@@ -1139,7 +1013,7 @@ function ActivityTimeline({ parts, reduce }: { parts: ChatPart[]; reduce: boolea
               ? 'activity-timeline-dot-active'
               : 'activity-timeline-dot-complete'
           return (
-            <div key={part.id} className="activity-timeline-item relative">
+            <div key={part.id} className={cn('activity-timeline-item relative', streaming && !reduce && part.kind === 'activity' && 'activity-arrive')}>
               <span aria-hidden className={cn('activity-timeline-dot', dotClass)}>
                 {active && <span className="activity-timeline-dot-pulse" />}
               </span>
@@ -1185,6 +1059,9 @@ function InlineActivity({ item, reduce }: { item: DirectorActivity; reduce: bool
         {item.elapsedMs != null && <span className="shrink-0 font-mono text-[8px] text-dim/70">{formatElapsed(item.elapsedMs)}</span>}
         <ChevronRight size={phase ? 11 : 9} className={cn('shrink-0 transition-transform', expanded && 'rotate-90')} />
       </button>
+      {item.name === 'download_youtube_video' && item.status === 'active' && (
+        <YouTubeDownloadProgress item={item} reduce={reduce} />
+      )}
       <AnimatePresence initial={false}>
         {expanded && (item.detail || item.arguments !== undefined) && (
           <motion.div
