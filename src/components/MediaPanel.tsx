@@ -440,7 +440,7 @@ function BinTabs({
         role="tablist"
         aria-label="Filter bin"
         onKeyDown={onKeyDown}
-        className="flex gap-3.5 border-b border-line"
+        className="grid grid-cols-5 border-b border-line"
       >
         {tabs.map((item) => {
           const selected = value === item.id
@@ -455,7 +455,7 @@ function BinTabs({
               whileTap={reduce ? undefined : { scale: 0.96 }}
               transition={softSpring}
               className={cn(
-                'relative pb-2 text-[11px] font-medium transition-colors duration-200',
+                'relative flex justify-center pb-2 text-[11px] font-medium transition-colors duration-200',
                 selected ? 'text-cream' : 'text-dim hover:text-mute',
               )}
             >

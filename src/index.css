@@ -163,6 +163,21 @@ textarea {
   animation: chat-message-in 0.3s ease forwards;
 }
 
+.model-row-in {
+  animation: model-row-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes model-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .markdown-text {
   min-width: 0;
   max-width: 100%;
@@ -592,6 +607,7 @@ details:not([open]) .activity-arguments-summary::before {
 
   .select-menu,
   .chat-message-enter,
+  .model-row-in,
   .stream-glyph {
     animation: none;
   }
