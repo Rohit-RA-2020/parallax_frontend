@@ -66,4 +66,59 @@ describe('LLM provider grouping', () => {
 
     expect(groupLLMProfiles(profiles)).toEqual([])
   })
+
+  it('carries the provider icon onto the grouped provider', () => {
+    const profiles: LLMProfile[] = [
+      {
+        id: 'openai:gpt-4.1',
+        provider_id: 'openai',
+        provider_label: 'OpenAI',
+        provider_icon: '/provider-icons/openai.png',
+        base_url: 'https://api.openai.com/v1',
+        model: 'gpt-4.1',
+        api_key_set: true,
+      },
+      {
+        id: 'openai:gpt-4o',
+        provider_id: 'openai',
+        provider_label: 'OpenAI',
+        provider_icon: '/provider-icons/openai.png',
+        base_url: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+        api_key_set: true,
+      },
+    ]
+
+    expect(groupLLMProfiles(profiles)[0].icon).toBe('/provider-icons/openai.png')
+  })
+
+  it('carries light/dark provider icons onto the grouped provider', () => {
+    const profiles: LLMProfile[] = [
+      {
+        id: 'openai:gpt-4.1',
+        provider_id: 'openai',
+        provider_label: 'OpenAI',
+        provider_icon: '/provider-icons/openai.png',
+        provider_icon_light: '/provider-icons/openai-light.png',
+        base_url: 'https://api.openai.com/v1',
+        model: 'gpt-4.1',
+        api_key_set: true,
+      },
+      {
+        id: 'openai:gpt-4o',
+        provider_id: 'openai',
+        provider_label: 'OpenAI',
+        provider_icon_dark: '/provider-icons/openai-dark.png',
+        base_url: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+        api_key_set: true,
+      },
+    ]
+
+    expect(groupLLMProfiles(profiles)[0]).toMatchObject({
+      icon: '/provider-icons/openai.png',
+      iconLight: '/provider-icons/openai-light.png',
+      iconDark: '/provider-icons/openai-dark.png',
+    })
+  })
 })

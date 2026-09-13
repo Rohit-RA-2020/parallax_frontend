@@ -4,7 +4,18 @@ export type LLMProvider = {
   id: string
   label: string
   baseURL: string
+  icon?: string
+  iconLight?: string
+  iconDark?: string
   models: LLMProfile[]
+}
+
+function firstIcon(models: LLMProfile[], pick: (model: LLMProfile) => string | undefined) {
+  for (const model of models) {
+    const icon = pick(model)?.trim()
+    if (icon) return icon
+  }
+  return undefined
 }
 
 export function groupLLMProfiles(profiles: LLMProfile[]): LLMProvider[] {
@@ -16,12 +27,18 @@ export function groupLLMProfiles(profiles: LLMProfile[]): LLMProvider[] {
     const existing = providers.get(id)
     if (existing) {
       existing.models.push(profile)
+      existing.icon ??= firstIcon([profile], (model) => model.provider_icon)
+      existing.iconLight ??= firstIcon([profile], (model) => model.provider_icon_light)
+      existing.iconDark ??= firstIcon([profile], (model) => model.provider_icon_dark)
       continue
     }
     providers.set(id, {
       id,
       label: providerLabel(profile),
       baseURL: profile.base_url,
+      icon: profile.provider_icon?.trim() || undefined,
+      iconLight: profile.provider_icon_light?.trim() || undefined,
+      iconDark: profile.provider_icon_dark?.trim() || undefined,
       models: [profile],
     })
   }

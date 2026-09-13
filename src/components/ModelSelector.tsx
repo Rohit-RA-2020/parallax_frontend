@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import type { LLMProfile } from '../lib/api'
 import { profileLabel } from '../lib/api'
 import { groupLLMProfiles } from '../lib/llmSettings'
+import { ProviderGlyph } from './ProviderGlyph'
 import { cn } from '../lib/cn'
 
 type Props = {
@@ -27,33 +28,20 @@ function readFavorites(): string[] {
   }
 }
 
-function providerInitial(label: string) {
-  const trimmed = label.trim()
-  if (!trimmed) return '·'
-  return trimmed.charAt(0).toUpperCase()
-}
-
-function hostOf(baseURL: string) {
-  try {
-    return new URL(baseURL).host.replace(/^www\./, '')
-  } catch {
-    return ''
-  }
-}
-
 function modelSublabel(model: LLMProfile, providerLabel: string) {
-  const host = hostOf(model.base_url)
   const provider = providerLabel || model.provider_label || ''
-  // Mimic "OpenCode · OpenCode Zen": provider grouping + endpoint/host detail
-  if (provider && host) return `${provider} · ${host}`
-  return provider || host || model.model
+  return provider || model.model
 }
 
 type RowProps = {
   model: LLMProfile
   label: string
   sublabel: string
-  providerGlyph: string
+  providerId: string
+  providerLabel: string
+  providerIcon?: string
+  providerIconLight?: string
+  providerIconDark?: string
   index: number
   selected: boolean
   highlighted: boolean
@@ -72,7 +60,11 @@ const ModelRow = memo(function ModelRow({
   model,
   label,
   sublabel,
-  providerGlyph,
+  providerId,
+  providerLabel,
+  providerIcon,
+  providerIconLight,
+  providerIconDark,
   index,
   selected,
   highlighted,
@@ -118,19 +110,22 @@ const ModelRow = memo(function ModelRow({
         onFocus={() => onHighlight(index)}
         className="relative z-[1] flex min-w-0 flex-1 cursor-pointer items-start gap-2.5 text-left"
       >
-        <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border border-line bg-lift text-[11px] font-semibold text-mute transition-transform duration-100 ease-out group-hover:scale-[1.04]">
-          {providerGlyph}
-        </span>
+        <ProviderGlyph
+          providerId={providerId}
+          label={providerLabel || label}
+          icon={providerIcon}
+          iconLight={providerIconLight}
+          iconDark={providerIconDark}
+          boxClassName="mt-0.5 size-6 rounded-md transition-transform duration-100 ease-out group-hover:scale-[1.04]"
+          glyphClassName="text-[11px] text-mute"
+        />
         <span className="min-w-0 flex-1">
           {/* Full model name — wraps instead of truncating */}
           <span className="block text-[13px] leading-snug font-medium break-words whitespace-normal text-cream">
             {label}
           </span>
-          <span className="mt-1 flex items-start gap-1.5 text-[11px] leading-snug text-dim">
-            <span className="mt-[1px] grid size-3 shrink-0 place-items-center rounded-[3px] border border-line text-[7px]">
-              ▢
-            </span>
-            <span className="min-w-0 flex-1 break-words whitespace-normal">{sublabel}</span>
+          <span className="mt-1 block text-[11px] leading-snug break-words whitespace-normal text-dim">
+            {sublabel}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5 pt-0.5">
@@ -376,9 +371,15 @@ export function ModelSelector({ models, modelId, onModel }: Props) {
         title={`Language model: ${activeLabel}`}
         className="flex h-7 w-auto min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-left transition-colors duration-150 hover:bg-wash active:scale-[0.97]"
       >
-        <span className="grid size-[18px] shrink-0 place-items-center rounded-[5px] border border-line bg-lift text-[10px] font-semibold text-cream">
-          {providerInitial(activeProvider?.label ?? activeModel.provider_label ?? activeLabel)}
-        </span>
+        <ProviderGlyph
+          providerId={activeProvider?.id ?? activeModel.id}
+          label={activeProvider?.label ?? activeModel.provider_label ?? activeLabel}
+          icon={activeProvider?.icon ?? activeModel.provider_icon}
+          iconLight={activeProvider?.iconLight ?? activeModel.provider_icon_light}
+          iconDark={activeProvider?.iconDark ?? activeModel.provider_icon_dark}
+          boxClassName="size-[18px] rounded-[5px]"
+          glyphClassName="text-[10px]"
+        />
         {/* Full name — no ellipsis */}
         <span className="min-w-0 flex-1 text-[12px] font-medium whitespace-nowrap text-cream">
           {activeLabel}
@@ -437,13 +438,21 @@ export function ModelSelector({ models, modelId, onModel }: Props) {
                     aria-pressed={selected}
                     onClick={() => setRail((current) => (current === provider.id ? 'all' : provider.id))}
                     className={cn(
-                      'grid size-7 cursor-pointer place-items-center rounded-md border text-[11px] font-semibold transition-all duration-150 ease-out hover:scale-105 active:scale-95',
+                      'grid size-7 cursor-pointer place-items-center overflow-hidden rounded-md border transition-all duration-150 ease-out hover:scale-105 active:scale-95',
                       selected
                         ? 'border-line-strong bg-wash-strong text-cream'
                         : 'border-transparent text-dim hover:bg-wash hover:text-cream',
                     )}
                   >
-                    {providerInitial(provider.label)}
+                    <ProviderGlyph
+                      providerId={provider.id}
+                      label={provider.label}
+                      icon={provider.icon}
+                      iconLight={provider.iconLight}
+                      iconDark={provider.iconDark}
+                      boxClassName="size-full border-0 bg-transparent"
+                      glyphClassName="text-[11px]"
+                    />
                   </button>
                 )
               })}
@@ -482,14 +491,18 @@ export function ModelSelector({ models, modelId, onModel }: Props) {
                 )}
                 {visible.map((model, index) => {
                   const provider = providers.find((item) => item.models.some((m) => m.id === model.id))
-                  const label = profileLabel(model)
+                  const label = model.model.trim() || profileLabel(model)
                   return (
                     <ModelRow
                       key={model.id}
                       model={model}
                       label={label}
                       sublabel={modelSublabel(model, provider?.label ?? '')}
-                      providerGlyph={providerInitial(provider?.label ?? model.provider_label ?? model.model)}
+                      providerId={provider?.id ?? model.id}
+                      providerLabel={provider?.label ?? model.provider_label ?? model.model}
+                      providerIcon={provider?.icon ?? model.provider_icon}
+                      providerIconLight={provider?.iconLight ?? model.provider_icon_light}
+                      providerIconDark={provider?.iconDark ?? model.provider_icon_dark}
                       index={index}
                       selected={model.id === activeModel.id}
                       highlighted={index === highlight}

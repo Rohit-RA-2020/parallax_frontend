@@ -141,6 +141,9 @@ export type LLMProfile = {
   label?: string
   provider_id?: string
   provider_label?: string
+  provider_icon?: string
+  provider_icon_light?: string
+  provider_icon_dark?: string
   base_url: string
   model: string
   api_key_set: boolean
