@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Copy, Download, ImagePlus, LoaderCircle, Pencil, Plus, PanelRightClose, RotateCcw, Trash2, Wrench, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import type { ChatMessage, ChatPart, Clip, DirectorActivity } from '../types'
+import type { ChatMessage, ChatPart, Clip, DirectorActivity, QuestionAnswer, QuestionSheet } from '../types'
 import type { ChatRecord, LLMProfile, ThinkingEffort } from '../lib/api'
 import { filesToChatImages, type ChatImagePayload } from '../lib/chatImage'
 import { formatRange } from '../lib/time'
@@ -9,6 +9,7 @@ import { cn } from '../lib/cn'
 import { fade, softSpring } from '../lib/motion'
 import { stripThoughtMarkup } from '../lib/thought'
 import { MarkdownText } from './MarkdownText'
+import { QASheet } from './QASheet'
 import { ModelSelector } from './ModelSelector'
 import { Select, SelectContent, SelectItem, SelectTrigger } from './Select'
 
@@ -36,6 +37,8 @@ type Props = {
   onModel?: (id: string) => void
   thinkingEffort: ThinkingEffort
   onThinkingEffort: (value: ThinkingEffort) => void
+  onAnswerQuestions?: (messageId: string, sheetId: string, answers: QuestionAnswer[]) => void
+  onSkipQuestions?: (messageId: string, sheetId: string) => void
 }
 
 export function ChatPanel({
@@ -62,6 +65,8 @@ export function ChatPanel({
   onModel,
   thinkingEffort,
   onThinkingEffort,
+  onAnswerQuestions,
+  onSkipQuestions,
 }: Props) {
   const reduce = useReducedMotion()
   const scroller = useRef<HTMLDivElement>(null)
@@ -85,6 +90,7 @@ export function ChatPanel({
   const active = chats.find((chat) => chat.id === chatId)
   const activeModel = models.find((model) => model.id === modelId) ?? models[0]
   const canSend = Boolean(draft.trim() || attachments.length) && !pending
+  const activeSheet = findActiveSheet(messages)
 
   useEffect(() => {
     setEditingIndex(null)
@@ -470,6 +476,7 @@ export function ChatPanel({
               onCancelEdit={() => setEditingIndex(null)}
               onSubmitEdit={onEdit}
               activityStartedAt={live ? activityStartedAt : null}
+              activeSheetId={activeSheet?.sheet.id}
             />
           )
         })}
@@ -480,6 +487,15 @@ export function ChatPanel({
       </div>
 
       <div className="border-t border-line bg-panel p-3">
+        {activeSheet ? (
+          <QASheet
+            key={activeSheet.sheet.id}
+            sheet={activeSheet.sheet}
+            disabled={pending}
+            onSubmit={(answers) => onAnswerQuestions?.(activeSheet.messageId, activeSheet.sheet.id, answers)}
+            onSkip={onSkipQuestions ? () => onSkipQuestions(activeSheet.messageId, activeSheet.sheet.id) : undefined}
+          />
+        ) : (
         <form
           onSubmit={submit}
           onDragEnter={(event) => {
@@ -591,9 +607,10 @@ export function ChatPanel({
                 className="grid size-7 shrink-0 place-items-center rounded-full bg-cream text-ink transition-opacity disabled:opacity-25"
               >
                 <ArrowUp size={14} />
-            </motion.button>
-          </div>
-        </form>
+              </motion.button>
+            </div>
+          </form>
+        )}
       </div>
     </aside>
   )
@@ -645,6 +662,7 @@ function Message({
   onStartEdit,
   onCancelEdit,
   onSubmitEdit,
+  activeSheetId,
 }: {
   message: ChatMessage
   index: number
@@ -658,6 +676,7 @@ function Message({
   onStartEdit?: () => void
   onCancelEdit?: () => void
   onSubmitEdit?: (index: number, text: string) => void
+  activeSheetId?: string
 }) {
   const mine = message.role === 'user'
   const messagePending = pending && live
@@ -702,6 +721,7 @@ function Message({
           elapsedOverride={message.workedMs}
           reduce={reduce}
           streaming={streaming}
+          activeSheetId={activeSheetId}
         />
       ) : !mine && message.workedMs != null ? (
         message.trace?.length
@@ -799,6 +819,7 @@ export function TranscriptParts({
   elapsedOverride,
   reduce,
   streaming,
+  activeSheetId,
 }: {
   parts: ChatPart[]
   pending: boolean
@@ -806,6 +827,7 @@ export function TranscriptParts({
   elapsedOverride?: number
   reduce: boolean
   streaming: boolean
+  activeSheetId?: string
 }) {
   const [elapsedMs, setElapsedMs] = useState(0)
 
@@ -828,6 +850,7 @@ export function TranscriptParts({
         visibleParts={visibleParts}
         elapsedMs={elapsedMs}
         reduce={reduce}
+        activeSheetId={activeSheetId}
       />
     )
   }
@@ -838,11 +861,19 @@ export function TranscriptParts({
     return (
       <div className="mt-1 w-full max-w-full space-y-2">
         <ActivitySummary parts={intermediateParts} elapsedMs={elapsedOverride} reduce={reduce} />
-        {finalParts.map((part) => part.kind === 'text' && part.text ? (
-          <div key={part.id} className="text-[13px] leading-relaxed text-mute">
-            <MarkdownText>{part.text}</MarkdownText>
-          </div>
-        ) : null)}
+        {finalParts.map((part) => {
+          if (part.kind === 'text' && part.text) {
+            return (
+              <div key={part.id} className="text-[13px] leading-relaxed text-mute">
+                <MarkdownText>{part.text}</MarkdownText>
+              </div>
+            )
+          }
+          if (part.kind === 'questions') {
+            return <QuestionSummary key={part.id} sheet={part.sheet} isActive={part.sheet.id === activeSheetId} />
+          }
+          return null
+        })}
       </div>
     )
   }
@@ -855,6 +886,8 @@ export function TranscriptParts({
             <MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{part.text}</MarkdownText>
           </div>
         ) : null
+      ) : part.kind === 'questions' ? (
+        <QuestionSummary key={part.id} sheet={part.sheet} isActive={part.sheet.id === activeSheetId} />
       ) : (
         <InlineActivity key={part.id} item={part.activity} reduce={reduce} />
       ))}
@@ -867,15 +900,18 @@ function LiveTranscript({
   visibleParts,
   elapsedMs,
   reduce,
+  activeSheetId,
 }: {
   parts: ChatPart[]
   visibleParts: ChatPart[]
   elapsedMs: number
   reduce: boolean
+  activeSheetId?: string
 }) {
   const latestPart = parts[parts.length - 1]
   const waiting = !latestPart || !isVisibleTranscriptPart(latestPart)
   const hasTools = visibleParts.some((part) => part.kind === 'activity' && part.activity.kind === 'tool')
+  const questionParts = visibleParts.filter((part) => part.kind === 'questions')
   return (
     <div className="mt-1 w-full max-w-full">
       <div role="status" className="mb-3 flex items-center gap-2 text-[11px] text-dim">
@@ -892,8 +928,70 @@ function LiveTranscript({
           ) : null)}
         </div>
       )}
+      {questionParts.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {questionParts.map((part) => part.kind === 'questions' && (
+            <QuestionSummary key={part.id} sheet={part.sheet} isActive={part.sheet.id === activeSheetId} />
+          ))}
+        </div>
+      )}
     </div>
   )
+}
+
+function QuestionSummary({ sheet, isActive }: { sheet: QuestionSheet; isActive?: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const count = sheet.questions.length
+  const title = sheet.answered
+    ? `Answered ${count === 1 ? '1 question' : `${count} questions`}`
+    : isActive
+      ? `Answer ${count === 1 ? 'the question' : `${count} questions`} below`
+      : `Waiting on ${count === 1 ? '1 question' : `${count} questions`}`
+  return (
+    <div className="w-full max-w-full rounded-lg border border-line bg-wash/30 px-2.5 py-2">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-1.5 text-left text-[12px] text-dim hover:text-cream"
+      >
+        <Check size={13} className="shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        <ChevronRight size={13} className={cn('shrink-0 transition-transform', expanded && 'rotate-90')} />
+      </button>
+      {expanded && (
+        <div className="mt-1.5 space-y-1.5">
+          {sheet.questions.map((q, i) => (
+            <div key={q.id} className="text-[12px] leading-snug">
+              <div className="text-mute">
+                <span className="mr-1 text-dim">{i + 1}.</span>
+                {q.question}
+              </div>
+              {sheet.answered && sheet.answers?.[q.id]?.length ? (
+                <div className="ml-4 mt-0.5 text-dim">→ {sheet.answers[q.id].join('; ')}</div>
+              ) : (
+                <div className="ml-4 mt-0.5 text-dim/70">{q.options.map((o) => o.label).join(' · ')}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function findActiveSheet(messages: ChatMessage[]): { messageId: string; sheet: QuestionSheet } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message.role !== 'assistant' || !message.parts) continue
+    for (let j = message.parts.length - 1; j >= 0; j--) {
+      const part = message.parts[j]
+      if (part.kind === 'questions' && !part.sheet.answered) {
+        return { messageId: message.id, sheet: part.sheet }
+      }
+    }
+  }
+  return null
 }
 
 function ActivitySummary({
@@ -943,6 +1041,7 @@ function ActivityTimeline({ parts, reduce, streaming = false }: { parts: ChatPar
       <span aria-hidden className="activity-timeline-rail" />
       <div className="space-y-3.5">
         {parts.map((part) => {
+          if (part.kind === 'questions') return null
           const content = part.kind === 'text'
             ? (part.text ? <div className="activity-timeline-text"><MarkdownText fadeTail={streaming && !reduce ? 120 : 0}>{part.text}</MarkdownText></div> : null)
             : <InlineActivity item={part.activity} reduce={reduce} />
@@ -1047,7 +1146,9 @@ function YouTubeDownloadProgress({ item, reduce }: { item: DirectorActivity; red
 }
 
 function isVisibleTranscriptPart(part: ChatPart) {
-  return part.kind === 'text' || part.activity.kind === 'tool'
+  if (part.kind === 'text') return true
+  if (part.kind === 'questions') return true
+  return part.activity.kind === 'tool'
 }
 
 function MessageActions({

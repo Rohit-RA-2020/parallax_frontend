@@ -153,6 +153,33 @@ export type ChatMessage = {
 export type ChatPart =
   | { id: string; kind: 'text'; text: string }
   | { id: string; kind: 'activity'; activity: DirectorActivity }
+  | { id: string; kind: 'questions'; sheet: QuestionSheet }
+
+export type QuestionOption = {
+  id: string
+  label: string
+}
+
+export type ClarifyingQuestion = {
+  id: string
+  question: string
+  options: QuestionOption[]
+  allow_custom: boolean
+  multi_select: boolean
+}
+
+export type QuestionSheet = {
+  id: string
+  questions: ClarifyingQuestion[]
+  answered: boolean
+  answers?: Record<string, string[]>
+}
+
+export type QuestionAnswer = {
+  questionId: string
+  selected: string[]
+  custom?: string
+}
 
 export type DirectorActivity = {
   id: string

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion'
-import type { ChatMessage, ChatPart, Clip, DirectorActivity, Grade, MediaAsset, MediaIndexState, ToolId } from '../types'
+import type { ChatMessage, ChatPart, ClarifyingQuestion, Clip, DirectorActivity, Grade, MediaAsset, MediaIndexState, QuestionAnswer, QuestionSheet, ToolId } from '../types'
 import {
   PROJECT_FPS,
 } from '../data/project'
@@ -1209,6 +1209,43 @@ export function Editor({ initialProjectID, onBackToProjects }: EditorProps) {
     await regenerateFromUser(userIndex)
   }
 
+  async function answerQuestions(messageId: string, sheetId: string, answers: QuestionAnswer[]) {
+    if (pendingRef.current) {
+      setToast('Wait for Director to finish')
+      return
+    }
+    const message = messagesRef.current.find((m) => m.id === messageId)
+    const sheet = message?.parts?.find((p): p is Extract<ChatPart, { kind: 'questions' }> => p.kind === 'questions' && p.sheet.id === sheetId)?.sheet
+    if (!sheet) {
+      setToast('Questions are no longer available')
+      return
+    }
+    const text = formatAnswersMessage(sheet.questions, answers)
+    if (!text.trim()) {
+      setToast('Answer at least one question')
+      return
+    }
+    const labels: Record<string, string[]> = {}
+    for (const q of sheet.questions) {
+      const answer = answers.find((a) => a.questionId === q.id)
+      const picked = (answer?.selected ?? [])
+        .map((id) => q.options.find((o) => o.id === id)?.label ?? id)
+      if (answer?.custom?.trim()) picked.push(answer.custom.trim())
+      labels[q.id] = picked
+    }
+    setMessages((current) => markQuestionsAnswered(current, messageId, sheetId, labels))
+    await send(text)
+  }
+
+  async function skipQuestions(messageId: string, sheetId: string) {
+    if (pendingRef.current) {
+      setToast('Wait for Director to finish')
+      return
+    }
+    setMessages((current) => markQuestionsAnswered(current, messageId, sheetId, {}))
+    await send('Skipping those questions — please proceed with your best judgment.')
+  }
+
   async function regenerateFromUser(userIndex: number, text?: string) {
     if (pendingRef.current) {
       setToast('Wait for Director to finish')
@@ -1469,6 +1506,14 @@ export function Editor({ initialProjectID, onBackToProjects }: EditorProps) {
             detail: error || (ok ? 'Completed.' : 'The tool returned an error.'),
             elapsedMs,
           }))
+        }
+        if (event.type === 'questions') {
+          queue.flush()
+          const sheet = questionsFromEventData(event.data)
+          if (sheet) {
+            setMessages((current) => appendQuestionsPart(current, responseID, sheet))
+            setToast('Director needs a few details')
+          }
         }
         if (event.type === 'error' && typeof event.data.message === 'string') {
           const message = event.data.message
@@ -1769,6 +1814,8 @@ export function Editor({ initialProjectID, onBackToProjects }: EditorProps) {
                 onModel={(id) => void selectModel(id)}
                 thinkingEffort={thinkingEffort}
                 onThinkingEffort={selectThinkingEffort}
+                onAnswerQuestions={(messageId, sheetId, answers) => void answerQuestions(messageId, sheetId, answers)}
+                onSkipQuestions={(messageId, sheetId) => void skipQuestions(messageId, sheetId)}
               />
             </motion.div>
           ) : (
@@ -2001,6 +2048,7 @@ function toolLabel(name: string, args?: unknown) {
     redo_project_change: 'Staging redo',
     restore_project_revision: 'Restoring project revision',
     create_project_checkpoint: 'Creating project checkpoint',
+    ask_questions: 'Asking for details',
   }
   return labels[name] ?? name.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
@@ -2156,6 +2204,93 @@ function completeStreamActivities(messages: ChatMessage[], id: string): ChatMess
   return next
 }
 
+function appendQuestionsPart(messages: ChatMessage[], id: string, sheet: QuestionSheet): ChatMessage[] {
+  const index = messages.findIndex((message) => message.id === id)
+  if (index < 0) return messages
+  const next = [...messages]
+  const message = next[index]
+  next[index] = {
+    ...message,
+    parts: [...(message.parts ?? []), { id: `questions-${sheet.id}`, kind: 'questions', sheet }],
+  }
+  return next
+}
+
+function markQuestionsAnswered(
+  messages: ChatMessage[],
+  messageId: string,
+  sheetId: string,
+  answers: Record<string, string[]>,
+): ChatMessage[] {
+  return messages.map((message) => {
+    if (message.id !== messageId || !message.parts) return message
+    return {
+      ...message,
+      parts: message.parts.map((part) => part.kind === 'questions' && part.sheet.id === sheetId
+        ? { ...part, sheet: { ...part.sheet, answered: true, answers } }
+        : part),
+    }
+  })
+}
+
+function questionsFromEventData(data: Record<string, unknown>): QuestionSheet | null {
+  const id = typeof data.id === 'string' && data.id ? data.id : uid()
+  const raw = Array.isArray(data.questions) ? data.questions : []
+  const questions: ClarifyingQuestion[] = []
+  for (let i = 0; i < raw.length && i < 4; i++) {
+    const item = raw[i] as Record<string, unknown>
+    if (!item || typeof item !== 'object') continue
+    const qid = typeof item.id === 'string' && item.id.trim() ? item.id : `q${i + 1}`
+    const question = typeof item.question === 'string' ? item.question : ''
+    const options = Array.isArray(item.options)
+      ? (item.options as unknown[]).flatMap((opt, j) => {
+          if (!opt || typeof opt !== 'object') return []
+          const o = opt as Record<string, unknown>
+          const oid = typeof o.id === 'string' && o.id.trim() ? o.id : `q${i + 1}_o${j + 1}`
+          const label = typeof o.label === 'string' ? o.label : ''
+          return label.trim() ? [{ id: oid, label }] : []
+        })
+      : []
+    if (!question.trim() || options.length < 2) continue
+    questions.push({
+      id: qid,
+      question,
+      options,
+      allow_custom: item.allow_custom !== false,
+      multi_select: item.multi_select === true,
+    })
+  }
+  if (!questions.length) return null
+  return { id, questions, answered: false }
+}
+
+function questionsFromTrace(events?: AgentEvent[]): QuestionSheet[] {
+  if (!events?.length) return []
+  const sheets: QuestionSheet[] = []
+  for (const event of events) {
+    if (event.type !== 'questions') continue
+    const sheet = questionsFromEventData(event.data)
+    if (sheet) sheets.push({ ...sheet, answered: true, answers: {} })
+  }
+  return sheets
+}
+
+function formatAnswersMessage(questions: ClarifyingQuestion[], answers: QuestionAnswer[]): string {
+  const lines: string[] = []
+  for (const q of questions) {
+    const answer = answers.find((a) => a.questionId === q.id)
+    if (!answer) continue
+    const picked = (answer.selected ?? [])
+      .map((oid) => q.options.find((o) => o.id === oid)?.label ?? oid)
+      .filter(Boolean)
+    if (answer.custom?.trim()) picked.push(`"${answer.custom.trim()}"`)
+    if (!picked.length) continue
+    lines.push(`- ${q.question} [${q.id}]: ${picked.join('; ')}`)
+  }
+  if (!lines.length) return ''
+  return `My answers to your questions:\n${lines.join('\n')}`
+}
+
 function finishStreamMessage(
   messages: ChatMessage[],
   id: string,
@@ -2222,18 +2357,28 @@ function toUiMessages(messages: SavedChatMessage[]): ChatMessage[] {
   }
   return visible
     .filter((message) => message.content.trim() || (message.images && message.images.length > 0))
-    .map((message) => ({
-      id: uid(),
-      role: message.role,
-      text: message.content,
-      time: '',
-      images: (message.images ?? []).flatMap((image) => {
-        const url = image.url ? API_BASE + image.url : ''
-        return url ? [{ name: image.name, mime: image.mime, path: image.path, url }] : []
-      }),
-      workedMs: message.worked_ms,
-      trace: activityFromTrace(message.trace_events),
-    }))
+    .map((message) => {
+      const sheets = questionsFromTrace(message.trace_events)
+      const parts: ChatPart[] | undefined = sheets.length
+        ? [
+            ...(message.content.trim() ? [{ id: `text-${uid()}`, kind: 'text' as const, text: message.content }] : []),
+            ...sheets.map((sheet) => ({ id: `questions-${sheet.id}`, kind: 'questions' as const, sheet })),
+          ]
+        : undefined
+      return {
+        id: uid(),
+        role: message.role,
+        text: message.content,
+        time: '',
+        images: (message.images ?? []).flatMap((image) => {
+          const url = image.url ? API_BASE + image.url : ''
+          return url ? [{ name: image.name, mime: image.mime, path: image.path, url }] : []
+        }),
+        workedMs: message.worked_ms,
+        trace: activityFromTrace(message.trace_events),
+        ...(parts ? { parts } : {}),
+      }
+    })
 }
 
 function applyThinkingActivity(items: DirectorActivity[], data: Record<string, unknown>): DirectorActivity[] {
